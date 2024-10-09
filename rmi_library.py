@@ -48,7 +48,10 @@ LOGGER = logging.getLogger("rmi_library")
 ROBOT_IP = "192.168.1.10"
 ROBOT_PORT = 16001
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((ROBOT_IP, ROBOT_PORT))
+
+ErrorID_to_str = {
+  2556941 : "Invalid RMI Command (2556941)"
+}
 
 # define the status list
 class STATUS(GetAttrEnum):
@@ -166,8 +169,16 @@ def route_request(request:Request,
     and request.query.get('method') == 'GET':
       try:
         #print("Message received :", request.body)
-        response = init_rmi_connection()
-        print(response)
+        response = rmi_connect()
+        time.sleep(4)
+        response = rmi_get_status()
+        #print("response :", response)
+        time.sleep(4)
+        response = rmi_disconnect()
+        #print("response :", response)
+        time.sleep(4)
+        response = rmi_connect()
+        print("response :", response)
       except Exception as e:
         print(e)
   else:
@@ -183,12 +194,18 @@ def send_message(packet):
     #decode the response
     response = sock.recv(1024).decode('utf-8')
     response_data = json.loads(response)
-    print(f"Robot response : {response_data}")
+    #print(f"Robot response : {response_data}")
     return response_data
   except Exception as e: print("error send_message()", e)
 
 def rmi_connect():
   try:
+    # we create a new socket with base ip and port
+    global sock
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((ROBOT_IP, ROBOT_PORT))
+    
+    # connection to robot via RMI
     connect_packet = {"Communication" : "FRC_Connect"}
     response = send_message(connect_packet)
     if response is None:
@@ -198,22 +215,60 @@ def rmi_connect():
       raise Exception("Error while fetching ErrorID")
     else:
       #if ErrorID == 0, the service is connected to robot
-      return error_id == 0, response
-  except Exception as e: print("error rmi_connect()", e)
+      is_connected = error_id == 0
+      error_str = ErrorID_to_str[error_id] if error_id in ErrorID_to_str else "empty"
+      
+      # the connection request give us a new port number to use, so we recreate the socket
+      new_port = response.get("PortNumber", None)
+      if new_port is None:
+        raise Exception("Error while fetching new PortNumber")
+      else:
+        sock.close()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((ROBOT_IP, new_port))
+      LOGGER.info("RMI_CONNECT successful") if is_connected else LOGGER.info("RMI_CONNECT failed, ErrorID = " + error_str)
+      return is_connected, response
+  except Exception as e: LOGGER.error(f"error rmi_connect(): {str(e)}")
 
 def rmi_disconnect():
   try:
     disconnect_packet = {"Communication" : "FRC_Disconnect"}
     response = send_message(disconnect_packet)
-    return response
-  except Exception as e: print("error rmi_disconnect()", e)
+    if response is None:
+      raise Exception("Error while sending disconnect_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      #if ErrorID == 0, the service is disconnected from robot
+      is_disconnected = error_id == 0
+      error_str = ErrorID_to_str[error_id] if error_id in ErrorID_to_str else "empty"
+      if is_disconnected:
+        global sock
+        sock.close()
+        LOGGER.info("RMI_DISCONNECT successful")
+      else:
+        LOGGER.info("RMI_DISCONNECT failed, ErrorID = " + error_str)
+      return is_disconnected, response
+  except Exception as e: print(f"error rmi_disconnect(): {str(e)}")
+
 
 def rmi_get_status():
   try:
     get_status_packet = {"Command" : "FRC_GetStatus"}
     response = send_message(get_status_packet)
-    return response
+    if response is None:
+      raise Exception("Error while sending get_status_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = ErrorID_to_str[error_id] if error_id in ErrorID_to_str else "empty"
+      LOGGER.info("RMI_GETSTATUS successful") if request_successful else LOGGER.info("RMI_GETSTATUS failed, ErrorID = " + error_str)
+      return response
   except Exception as e: print("error rmi_get_status()", e)
+
 
 def is_robot_available_to_initialize(data):
   if data.get("ErrorID", -1) != 0:
@@ -233,8 +288,12 @@ def rmi_initialize():
   try:
     initialize_packet = {"Command" : "FRC_Initialize"}
     response = send_message(initialize_packet)
-    #si retour == 0 alors on True
-    return response
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      #if ErrorID == 0, rmi is initialized
+      return error_id == 0, response
   except Exception as e: print("error rmi_initialize()", e)
 
 ##En fait, ne sert à rien, ces messages sont envoyés depuis le robot

@@ -53,6 +53,13 @@ ErrorID_to_str = {
   2556941 : "Invalid RMI Command (2556941)"
 }
 
+TIME_BUFFER = 0.005 #time to wait between each instruction
+
+def get_error_string(error_code:int):
+  global ErrorID_to_str
+  error_str = ErrorID_to_str[error_code] if error_code in ErrorID_to_str else "empty"
+  return error_str
+
 # define the status list
 class STATUS(GetAttrEnum):
   INIT = 'init'
@@ -168,17 +175,20 @@ def route_request(request:Request,
   if request.query.get('path') == '/rmi_library/test'\
     and request.query.get('method') == 'GET':
       try:
-        #print("Message received :", request.body)
-        response = rmi_connect()
-        time.sleep(4)
-        response = rmi_get_status()
-        #print("response :", response)
-        time.sleep(4)
-        response = rmi_disconnect()
-        #print("response :", response)
-        time.sleep(4)
-        response = rmi_connect()
-        print("response :", response)
+        ##print("Message received :", request.body)
+        #response = rmi_connect()
+        #time.sleep(4)
+        #b, response = rmi_get_status()
+        ##print("response :", response)
+        #time.sleep(4)
+        #res = is_robot_available_to_initialize(response)
+        #print(res)
+        #time.sleep(4)
+        #print(":)")
+        #b, response = rmi_initialize()
+        #print("response :", response, b)
+        
+        init_rmi_connection()
       except Exception as e:
         print(e)
   else:
@@ -199,6 +209,7 @@ def send_message(packet):
   except Exception as e: print("error send_message()", e)
 
 def rmi_connect():
+  time.sleep(TIME_BUFFER)
   try:
     # we create a new socket with base ip and port
     global sock
@@ -216,7 +227,7 @@ def rmi_connect():
     else:
       #if ErrorID == 0, the service is connected to robot
       is_connected = error_id == 0
-      error_str = ErrorID_to_str[error_id] if error_id in ErrorID_to_str else "empty"
+      error_str = get_error_string(error_id)
       
       # the connection request give us a new port number to use, so we recreate the socket
       new_port = response.get("PortNumber", None)
@@ -231,6 +242,7 @@ def rmi_connect():
   except Exception as e: LOGGER.error(f"error rmi_connect(): {str(e)}")
 
 def rmi_disconnect():
+  time.sleep(TIME_BUFFER)
   try:
     disconnect_packet = {"Communication" : "FRC_Disconnect"}
     response = send_message(disconnect_packet)
@@ -242,7 +254,7 @@ def rmi_disconnect():
     else:
       #if ErrorID == 0, the service is disconnected from robot
       is_disconnected = error_id == 0
-      error_str = ErrorID_to_str[error_id] if error_id in ErrorID_to_str else "empty"
+      error_str = get_error_string(error_id)
       if is_disconnected:
         global sock
         sock.close()
@@ -253,7 +265,8 @@ def rmi_disconnect():
   except Exception as e: print(f"error rmi_disconnect(): {str(e)}")
 
 
-def rmi_get_status():
+def rmi_get_status(verbose=True):
+  time.sleep(TIME_BUFFER)
   try:
     get_status_packet = {"Command" : "FRC_GetStatus"}
     response = send_message(get_status_packet)
@@ -264,9 +277,10 @@ def rmi_get_status():
       raise Exception("Error while fetching ErrorID")
     else:
       request_successful = error_id == 0
-      error_str = ErrorID_to_str[error_id] if error_id in ErrorID_to_str else "empty"
-      LOGGER.info("RMI_GETSTATUS successful") if request_successful else LOGGER.info("RMI_GETSTATUS failed, ErrorID = " + error_str)
-      return response
+      error_str = get_error_string(error_id)
+      if verbose:
+        LOGGER.info("RMI_GETSTATUS successful") if request_successful else LOGGER.info("RMI_GETSTATUS failed, ErrorID = " + error_str)
+      return request_successful, response
   except Exception as e: print("error rmi_get_status()", e)
 
 
@@ -278,22 +292,29 @@ def is_robot_available_to_initialize(data):
     tp_mode = data.get("TPMode", None)
     
     if servo_ready is not None and tp_mode is not None:
-      return servo_ready == 1 and tp_mode == 1
+      is_available = servo_ready == 1 and tp_mode == 1
+      return is_available
     else:
       print("Error while reading ServoReady or TPMode")
       return False
 
 
 def rmi_initialize():
+  time.sleep(TIME_BUFFER)
   try:
     initialize_packet = {"Command" : "FRC_Initialize"}
     response = send_message(initialize_packet)
+    if response is None:
+      raise Exception("Error while sending initialize_packet")
     error_id = response.get("ErrorID", None)
     if error_id is None:
       raise Exception("Error while fetching ErrorID")
     else:
       #if ErrorID == 0, rmi is initialized
-      return error_id == 0, response
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_INITIALIZE successful") if request_successful else LOGGER.info("RMI_INITIALIZE failed, ErrorID = " + error_str)
+      return request_successful, response
   except Exception as e: print("error rmi_initialize()", e)
 
 ##En fait, ne sert à rien, ces messages sont envoyés depuis le robot
@@ -305,6 +326,7 @@ def rmi_initialize():
 #  except Exception as e: print("error rmi_terminate()", e)
 
 def rmi_abort():
+  time.sleep(TIME_BUFFER)
   try:
     abort_packet = {"Command" : "FRC_Abort"}
     response = send_message(abort_packet)
@@ -312,6 +334,7 @@ def rmi_abort():
   except Exception as e: print("error rmi_abort()", e)
 
 def rmi_pause():
+  time.sleep(TIME_BUFFER)
   try:
     pause_packet = {"Command" : "FRC_Pause"}
     response = send_message(pause_packet)
@@ -319,6 +342,7 @@ def rmi_pause():
   except Exception as e: print("error rmi_pause()", e)
 
 def rmi_continue():
+  time.sleep(TIME_BUFFER)
   try:
     continue_packet = {"Command" : "FRC_Continue"}
     response = send_message(continue_packet)
@@ -327,6 +351,7 @@ def rmi_continue():
 
 #TODO savoir à quoi sert le "count" optionnel
 def rmi_read_error():
+  time.sleep(TIME_BUFFER)
   try:
     read_error_packet = {"Command" : "FRC_ReadError"}
     response = send_message(read_error_packet)
@@ -337,18 +362,16 @@ def init_rmi_connection():
   try:
     is_connected, _ = rmi_connect()
     if not is_connected:
-      raise Exception("Error while fetching ErrorID")
-    else:
-      print("rmi_connect() successful")
-    status = rmi_get_status()
+      raise Exception("Error while executing rmi_connect()")
+    _, status = rmi_get_status()
     is_status_ok = is_robot_available_to_initialize(status)
+    LOGGER.info("Robot ready for initialization") if is_status_ok else LOGGER.info("waiting for ServoReady = 1 and TPMODE = 1...")
     while not is_status_ok:
-      print("waiting for valid robot status")
       time.sleep(1)
-      status = rmi_get_status()
+      _, status = rmi_get_status(False)
       is_status_ok = is_robot_available_to_initialize(status)
     print("Robot status is OK, initialization...")
-    rmi_initialize()
+    _, _ = rmi_initialize()
   except Exception as e: print("error init_rmi_connection()", e)
 
 def test_all_functions():

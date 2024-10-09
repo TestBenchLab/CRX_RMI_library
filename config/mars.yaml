@@ -1,0 +1,12 @@
+database:
+  type: 'MONGODB'
+  host: localhost
+  port: 27017
+  database: 'mars'
+  collection: 'carrier'
+
+
+
+
+
+  

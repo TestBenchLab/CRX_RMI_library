@@ -1,0 +1,75 @@
+{
+  "commands":{
+    "$id":"/commands",
+    "$paths":["/commands/generate"],
+    "type":"object",
+    "properties": {
+      "uid":{
+        "type":"string",
+        "minLength": 24,
+        "maxLength": 24
+      }
+    },
+    "required":["uid"],
+    "additionalProperties":false
+  },
+  "rmi_request":{
+    "$id":"/rmi_request",
+    "$paths":["/rmi_request/test"],
+    "type":"object",
+    "properties": {
+      "data":{
+        "type":"string"
+      }
+    },
+    "required":["uid"],
+    "additionalProperties":false
+  },
+  "drillOverload":{
+    "$id":"/overload/drill",
+    "$paths":["/overload/drill"],
+    "type":"object",
+    "properties": {
+      "overload": {
+        "type":"boolean"
+      }
+    },
+    "if": {
+      "properties": {
+        "overload": {
+          "const": true
+        }
+      }
+    },
+    "then": {
+      "properties": {
+        "definition":{
+          "type":"object",
+          "properties": {
+            "speed":{
+              "type":"number"
+            },
+            "feed":{
+              "type":"number"
+            },
+            "peak_frequency":{
+              "type":"number"
+            },
+            "peak_amplitude":{
+              "type":"number"
+            },
+            "clamp_weight":{
+              "type":"number"
+            },
+            "drill_thickness":{
+              "type":"number"
+            }
+          },
+          "required":["speed", "feed", "peak_frequency", "peak_amplitude", "clamp_weight", "drill_thickness"]
+        }
+      },
+      "required":["overload", "definition"]
+    },
+    "required":["overload"]
+  }
+}

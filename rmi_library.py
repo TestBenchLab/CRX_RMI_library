@@ -50,14 +50,20 @@ ROBOT_PORT = 16001
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 ErrorID_to_str = {
-  2556941 : "Invalid RMI Command (2556941)"
+  2556932 : "Invalid Position Register (2556932)",
+  2556936 : "Cannot Execute TP program (2556936)",
+  2556937 : "RMI is Not Running (2556937)",
+  2556941 : "Invalid RMI Command (2556941)",
+  2556943 : "Invalid Controller State (2556943)",
+  2556950 : "Invalid Text String (2556950)"
 }
 
 TIME_BUFFER = 0.005 #time to wait between each instruction
+SEQUENCE_ID = -1
 
 def get_error_string(error_code:int):
   global ErrorID_to_str
-  error_str = ErrorID_to_str[error_code] if error_code in ErrorID_to_str else "empty"
+  error_str = ErrorID_to_str[error_code] if error_code in ErrorID_to_str else "Error code : " + str(error_code)
   return error_str
 
 # define the status list
@@ -189,7 +195,60 @@ def route_request(request:Request,
         #print("response :", response, b)
         
         init_rmi_connection()
+        #rmi_set_uf_ut(2,2)
+        #uf = rmi_read_uf_data(2)
+        #print(uf)
+        #rmi_write_uf_data(2, {"X" : 1, "Y" : 1, "Z" : 1, "W" : 1, "P" : 1, "R" : 1})
+        #uf = rmi_read_uf_data(2)
+        #print(uf)
+        
+        #_, pos = rmi_read_cartesian_position()
+        #print(pos)
+        #_, pos = rmi_read_joint_angles()
+        #print(pos)
+        #rmi_set_override(52)
+      
+        #rmi_connect()
+        #rmi_reset()
+        
+        #_, uf_ut = rmi_get_uf_ut()
+        #print(uf_ut)
+        
+        #_, pr = rmi_read_position_register(1)
+        #print(pr)
+        #_, pr = rmi_read_position_register(2)
+        #print(pr)
+        
+        #_, pr = rmi_read_position_register(2)
+        #print(pr)
+        #config = {"UToolNumber" : 2, "UFrameNumber" : 2, "Front" : 0, "Up" : 0, "Left" : 0, "Flip" : 0, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}
+        #position = {"X" : 600.0, "Y" : -230.0, "Z" : 600.0, "W" : -150.0, "P" : -90.0, "R" : 25.0}
+        #rmi_write_position_register(2, config, position)
+        #_, pr = rmi_read_position_register(2)
+        #print(pr)
+        
+        #_, tcp_speed = rmi_read_tcp_speed()
+        #print(tcp_speed)
+
+        #_, response = rmi_wait_din(SEQUENCE_ID, 145, "OFF")
+        _, response = rmi_set_u_frame(3)
+        print("response :", response)
+        _, response = rmi_set_u_frame(3)
+        print("response :", response)
+
+        
+        #rmi_connect()
+        #b, response = rmi_get_status()
+        #print("response :", response, b)
       except Exception as e:
+        print(e)
+  elif request.query.get('path') == '/rmi_request/init_rmi_connection':
+    try:
+      #init_rmi_connection()
+      rmi_connect()
+      b, response = rmi_get_status()
+      print("response :", response, b)
+    except Exception as e:
         print(e)
   else:
     # >LOG
@@ -204,6 +263,7 @@ def send_message(packet):
     #decode the response
     response = sock.recv(1024).decode('utf-8')
     response_data = json.loads(response)
+    print("REPONSE RECUE", response_data)
     #print(f"Robot response : {response_data}")
     return response_data
   except Exception as e: print("error send_message()", e)
@@ -277,9 +337,10 @@ def rmi_get_status(verbose=True):
       raise Exception("Error while fetching ErrorID")
     else:
       request_successful = error_id == 0
-      error_str = get_error_string(error_id)
       if verbose:
+        error_str = get_error_string(error_id)
         LOGGER.info("RMI_GETSTATUS successful") if request_successful else LOGGER.info("RMI_GETSTATUS failed, ErrorID = " + error_str)
+      print("STATUS =", response) #temp
       return request_successful, response
   except Exception as e: print("error rmi_get_status()", e)
 
@@ -292,7 +353,7 @@ def is_robot_available_to_initialize(data):
     tp_mode = data.get("TPMode", None)
     
     if servo_ready is not None and tp_mode is not None:
-      is_available = servo_ready == 1 and tp_mode == 1
+      is_available = servo_ready == 1 and tp_mode == 0
       return is_available
     else:
       print("Error while reading ServoReady or TPMode")
@@ -330,24 +391,72 @@ def rmi_abort():
   try:
     abort_packet = {"Command" : "FRC_Abort"}
     response = send_message(abort_packet)
-    return response
+    if response is None:
+      raise Exception("Error while sending abort_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_ABORT successful") if request_successful else LOGGER.info("RMI_ABORT failed, ErrorID = " + error_str)
+      return response
   except Exception as e: print("error rmi_abort()", e)
+
+
+def rmi_reset():
+  time.sleep(TIME_BUFFER)
+  try:
+    reset_packet = {"Command" : "FRC_Reset"}
+    response = send_message(reset_packet)
+    if response is None:
+      raise Exception("Error while sending reset_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_RESET successful") if request_successful else LOGGER.info("RMI_RESET failed, ErrorID = " + error_str)
+      return response
+  except Exception as e: print("error rmi_reset()", e)
+
 
 def rmi_pause():
   time.sleep(TIME_BUFFER)
   try:
     pause_packet = {"Command" : "FRC_Pause"}
     response = send_message(pause_packet)
-    return response
+    if response is None:
+      raise Exception("Error while sending pause_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_PAUSE successful") if request_successful else LOGGER.info("RMI_PAUSE failed, ErrorID = " + error_str)
+      return response
   except Exception as e: print("error rmi_pause()", e)
+  
 
 def rmi_continue():
   time.sleep(TIME_BUFFER)
   try:
     continue_packet = {"Command" : "FRC_Continue"}
     response = send_message(continue_packet)
-    return response
+    if response is None:
+      raise Exception("Error while sending continue_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_CONTINUE successful") if request_successful else LOGGER.info("RMI_CONTINUE failed, ErrorID = " + error_str)
+      return response
   except Exception as e: print("error rmi_continue()", e)
+  
 
 #TODO savoir à quoi sert le "count" optionnel
 def rmi_read_error():
@@ -358,14 +467,19 @@ def rmi_read_error():
     return response
   except Exception as e: print("error read_error_packet()", e)
 
+
 def init_rmi_connection():
   try:
     is_connected, _ = rmi_connect()
     if not is_connected:
       raise Exception("Error while executing rmi_connect()")
+    rmi_reset()
+    rmi_abort()
     _, status = rmi_get_status()
+    global SEQUENCE_ID
+    SEQUENCE_ID = status.get("NextSequenceID")
     is_status_ok = is_robot_available_to_initialize(status)
-    LOGGER.info("Robot ready for initialization") if is_status_ok else LOGGER.info("waiting for ServoReady = 1 and TPMODE = 1...")
+    LOGGER.info("Robot ready for initialization") if is_status_ok else LOGGER.info("waiting for ServoReady = 1 and TPMODE = 0...")
     while not is_status_ok:
       time.sleep(1)
       _, status = rmi_get_status(False)
@@ -373,6 +487,429 @@ def init_rmi_connection():
     print("Robot status is OK, initialization...")
     _, _ = rmi_initialize()
   except Exception as e: print("error init_rmi_connection()", e)
+
+
+def rmi_set_uf_ut(uf:int, ut:int, group=1):
+  try:
+    time.sleep(TIME_BUFFER)
+    assert(0 <= uf and uf <= 255 and 0 <= ut and ut <= 255), "uf or ut is out of range"
+    set_uf_ut_packet = {"Command" : "FRC_SetUFrameUTool",
+                        "UFrameNumber" : uf,
+                        "UToolNumber" : ut,
+                        "Group" : group}
+    response = send_message(set_uf_ut_packet)
+    if response is None:
+      raise Exception("Error while sending set_uf_ut_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_SET_UF_UT successful") if request_successful else LOGGER.info("RMI_SET_UF_UT failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_set_uf_ut()", e)
+
+
+def rmi_read_uf_data(uf:int, group=1):
+  try:
+    time.sleep(TIME_BUFFER)
+    assert(0 <= uf and uf <= 255), "uf number is out of range"
+    read_uf_data_packet = {"Command" : "FRC_ReadUFrameData",
+                        "FrameNumber" : uf,
+                        "Group" : group}
+    response = send_message(read_uf_data_packet)
+    if response is None:
+      raise Exception("Error while sending read_uf_data_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_READ_UF_DATA successful") if request_successful else LOGGER.info("RMI_READ_UF_DATA failed, ErrorID = " + error_str)
+      return response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_read_uf_data()", e)
+
+
+def rmi_write_uf_data(uf_number:int, frame:dict, group=1):
+  try:
+    time.sleep(TIME_BUFFER)
+    expected_keys = {"X", "Y", "Z", "W", "P", "R"}
+    assert set(frame.keys()) == expected_keys, "the input frame isn't correctly written ; frame : " + str(frame)
+    assert(0 <= uf_number and uf_number <= 255), "uf number is out of range"
+    write_uf_data_packet = {"Command" : "FRC_WriteUFrameData",
+                        "FrameNumber" : uf_number,
+                        "Frame" : frame,
+                        "Group" : group}
+    response = send_message(write_uf_data_packet)
+    if response is None:
+      raise Exception("Error while sending write_uf_data_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_WRITE_UF_DATA successful") if request_successful else LOGGER.info("RMI_WRITE_UF_DATA failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_write_uf_data()", e)
+
+
+def rmi_read_ut_data(ut:int, group=1):
+  try:
+    time.sleep(TIME_BUFFER)
+    assert(0 <= ut and ut <= 255), "ut number is out of range"
+    read_ut_data_packet = {"Command" : "FRC_ReadUToolData",
+                        "ToolNumber" : ut,
+                        "Group" : group}
+    response = send_message(read_ut_data_packet)
+    if response is None:
+      raise Exception("Error while sending read_ut_data_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_READ_UT_DATA successful") if request_successful else LOGGER.info("RMI_READ_UT_DATA failed, ErrorID = " + error_str)
+      return response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_read_ut_data()", e)
+
+
+def rmi_write_ut_data(ut_number:int, frame:dict, group=1):
+  try:
+    time.sleep(TIME_BUFFER)
+    expected_keys = {"X", "Y", "Z", "W", "P", "R"}
+    assert set(frame.keys()) == expected_keys, "the input frame isn't correctly written ; frame : " + str(frame)
+    assert(0 <= ut_number and ut_number <= 255), "ut number is out of range"
+    write_ut_data_packet = {"Command" : "FRC_WriteUToolData",
+                        "ToolNumber" : ut_number,
+                        "Frame" : frame,
+                        "Group" : group}
+    response = send_message(write_ut_data_packet)
+    if response is None:
+      raise Exception("Error while sending write_ut_data_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_WRITE_UT_DATA successful") if request_successful else LOGGER.info("RMI_WRITE_UT_DATA failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_write_ut_data()", e)
+
+
+def rmi_read_d_in(port_number:int):
+  a = 0
+  #TODO
+
+
+def rmi_write_d_out(port_number:int, port_value):
+  a = 0
+  #TODO
+
+
+def rmi_read_cartesian_position(group=1):
+  time.sleep(TIME_BUFFER)
+  try:
+    read_cartesian_position_packet = {"Command" : "FRC_ReadCartesianPosition",
+                                      "Group" : group}
+    response = send_message(read_cartesian_position_packet)
+    if response is None:
+      raise Exception("Error while sending read_cartesian_position_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_READ_CARTESIAN_POSITION successful") if request_successful else LOGGER.info("RMI_READ_CARTESIAN_POSITION failed, ErrorID = " + error_str)
+      return request_successful, response
+  except Exception as e: print("error rmi_read_cartesian_position()", e)
+
+
+def rmi_read_joint_angles(group=1):
+  time.sleep(TIME_BUFFER)
+  try:
+    read_joint_angles_packet = {"Command" : "FRC_ReadJointAngles",
+                                "Group" : group}
+    response = send_message(read_joint_angles_packet)
+    if response is None:
+      raise Exception("Error while sending read_joint_angles_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_READ_CARTESIAN_POSITION successful") if request_successful else LOGGER.info("RMI_READ_CARTESIAN_POSITION failed, ErrorID = " + error_str)
+      return request_successful, response
+  except Exception as e: print("error rmi_read_joint_angles()", e)
+
+
+def rmi_set_override(value:int):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert(1 <= value and value <= 100), "override value is out of range"
+    set_override_packet =  {"Command" : "FRC_SetOverRide",
+                            "Value" : value}
+    response = send_message(set_override_packet)
+    if response is None:
+      raise Exception("Error while sending set_override_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_SET_OVERRIDE successful") if request_successful else LOGGER.info("RMI_SET_OVERRIDE failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_set_override()", e)
+
+
+def rmi_get_uf_ut(group=1):
+  time.sleep(TIME_BUFFER)
+  try:
+    get_uf_ut_packet = {"Command" : "FRC_GetUFrameUTool",
+                        "Group" : group}
+    response = send_message(get_uf_ut_packet)
+    if response is None:
+      raise Exception("Error while sending get_uf_ut_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_GET_UF_UT successful") if request_successful else LOGGER.info("RMI_GET_UF_UT failed, ErrorID = " + error_str)
+      return request_successful, response
+  except Exception as e: print("error rmi_read_joint_angles()", e)
+
+
+def rmi_read_position_register(register:int, group=1):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert(1 <= register and register <= 100), "register value is out of range"
+    read_pr_packet = {"Command" : "FRC_ReadPositionRegister",
+                      "RegisterNumber" : register,
+                      "Group" : group}
+    response = send_message(read_pr_packet)
+    if response is None:
+      raise Exception("Error while sending read_pr_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_READ_PR successful") if request_successful else LOGGER.info("RMI_READ_PR failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_read_position_register()", e)
+
+
+def rmi_write_position_register(register:int, config:dict, position:dict, group=1):
+  try:
+    time.sleep(TIME_BUFFER)
+    expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
+    assert set(config.keys()) == expected_keys, "the config isn't correctly written ; frame : " + str(config)
+    expected_keys = {"X", "Y", "Z", "W", "P", "R"}
+    assert set(position.keys()) == expected_keys, "the input position isn't correctly written ; frame : " + str(position)
+    assert(1 <= register and register <= 100), "register value is out of range"
+    write_pr_packet =  {"Command" : "FRC_WritePositionRegister",
+                        "RegisterNumber" : register,
+                        "Configuration" : config,
+                        "Position" : position,
+                        "Group" : group}
+    
+    response = send_message(write_pr_packet)
+    if response is None:
+      raise Exception("Error while sending write_pr")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_WRITE_PR successful") if request_successful else LOGGER.info("RMI_WRITE_PR failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_write_position_register()", e)
+
+
+def rmi_read_tcp_speed():
+  time.sleep(TIME_BUFFER)
+  try:
+    read_tcp_speed_packet = {"Command" : "FRC_ReadTCPSpeed"}
+    response = send_message(read_tcp_speed_packet)
+    if response is None:
+      raise Exception("Error while sending read_tcp_speed_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_READ_TCP_SPEED successful") if request_successful else LOGGER.info("RMI_READ_TCP_SPEED failed, ErrorID = " + error_str)
+      return request_successful, response
+  except Exception as e: print("error rmi_read_tcp_speed()", e)
+
+
+def rmi_wait_din(sequence_id:int, port_number:int, port_value:str):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert (port_value in ["ON", "OFF"]), "Invalid port value ; port_value : " + port_value
+    assert (0 <= port_number and port_number <= 512), "Invalid port number ; port_number : " + port_number
+    wait_din_packet = {"Instruction" : "FRC_WaitDIN",
+                       "SequenceID" : sequence_id,
+                       "PortNumber" : port_number,
+                       "portValue" : port_value}
+    print("coucou")
+    response = send_message(wait_din_packet)
+    if response is None:
+      raise Exception("Error while sending wait_din_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_WAIT_DIN successful") if request_successful else LOGGER.info("RMI_WAIT_DIN failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_wait_din()", e)
+
+
+def rmi_set_u_frame(frame_number:int):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert(1 <= frame_number and frame_number <= 10), "frame_number value is out of range"
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    set_u_frame_packet =  {"Instruction" : "FRC_SetUFrame",
+                           "SequenceID" : sequence_id,
+                           "FrameNumber" : frame_number}
+    response = send_message(set_u_frame_packet)
+    if response is None:
+      raise Exception("Error while sending set_u_frame_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_SET_U_FRAME successful") if request_successful else LOGGER.info("RMI_SET_U_FRAME failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_set_u_frame()", e)
+
+
+def rmi_set_u_tool(tool_number:int):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert(1 <= tool_number and tool_number <= 9), "tool_number value is out of range"
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    set_u_tool_packet = {"Instruction" : "FRC_SetUTool",
+                         "SequenceID" : sequence_id,
+                         "ToolNumber" : tool_number}
+    response = send_message(set_u_tool_packet)
+    if response is None:
+      raise Exception("Error while sending set_u_tool_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_SET_U_TOOL successful") if request_successful else LOGGER.info("RMI_SET_U_TOOL failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_set_u_tool()", e)
+
+
+def rmi_wait_time(waiting_time:float):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert(0 <= waiting_time), "waiting_time is not positive"
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    wait_time_packet = {"Instruction" : "FRC_WaitTime",
+                        "SequenceID" : sequence_id,
+                        "Time" : waiting_time}
+    response = send_message(wait_time_packet)
+    if response is None:
+      raise Exception("Error while sending wait_time_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_WAIT_TIME successful") if request_successful else LOGGER.info("RMI_WAIT_TIME failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_wait_time()", e)
+
+
+def rmi_set_payload(schedule_number:int):
+  time.sleep(TIME_BUFFER)
+  try:
+    assert(0 <= schedule_number and 1 != 1), "schedule_number is out of range"
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    set_pay_load_packet = {"Instruction" : "FRC_SetPayLoad",
+                           "SequenceID" : sequence_id,
+                           "ScheduleNumber" : schedule_number}
+    response = send_message(set_pay_load_packet)
+    if response is None:
+      raise Exception("Error while sending set_pay_load_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_SET_PAYLOAD successful") if request_successful else LOGGER.info("RMI_SET_PAYLOAD failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_set_payload()", e)
+
+
+def rmi_call(program_name:str):
+  time.sleep(TIME_BUFFER)
+  try:
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    call_packet = {"Instruction" : "FRC_Call",
+                   "SequenceID" : sequence_id,
+                   "ProgramName" : program_name}
+    response = send_message(call_packet)
+    if response is None:
+      raise Exception("Error while sending call_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_CALL successful") if request_successful else LOGGER.info("RMI_CALL failed, ErrorID = " + error_str)
+      return request_successful, response
+  except Exception as e: print("error rmi_call()", e)
+
 
 def test_all_functions():
   print("Run all function tests\n")

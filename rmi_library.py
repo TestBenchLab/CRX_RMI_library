@@ -55,7 +55,8 @@ ErrorID_to_str = {
   2556937 : "RMI is Not Running (2556937)",
   2556941 : "Invalid RMI Command (2556941)",
   2556943 : "Invalid Controller State (2556943)",
-  2556950 : "Invalid Text String (2556950)"
+  2556950 : "Invalid Text String (2556950)",
+  2556957 : "Invalid sequence ID (2556957)"
 }
 
 TIME_BUFFER = 0.005 #time to wait between each instruction
@@ -231,11 +232,18 @@ def route_request(request:Request,
         #print(tcp_speed)
 
         #_, response = rmi_wait_din(SEQUENCE_ID, 145, "OFF")
-        _, response = rmi_set_u_frame(3)
-        print("response :", response)
-        _, response = rmi_set_u_frame(3)
-        print("response :", response)
-
+        #_, response = rmi_set_u_frame(3)
+        #print("response :", response)
+        #_, response = rmi_set_u_frame(3)
+        #print("response :", response)
+        rmi_abort()
+        print("response :", response, "\n")
+        _, response = rmi_set_u_frame(1)
+        print("response :", response, "\n")
+        rmi_abort()
+        print("response :", response, "\n")
+        #_, response = rmi_set_u_tool(1)
+        #print("response :", response, "\n")
         
         #rmi_connect()
         #b, response = rmi_get_status()
@@ -477,7 +485,8 @@ def init_rmi_connection():
     rmi_abort()
     _, status = rmi_get_status()
     global SEQUENCE_ID
-    SEQUENCE_ID = status.get("NextSequenceID")
+    #SEQUENCE_ID = status.get("NextSequenceID")
+    SEQUENCE_ID = 1
     is_status_ok = is_robot_available_to_initialize(status)
     LOGGER.info("Robot ready for initialization") if is_status_ok else LOGGER.info("waiting for ServoReady = 1 and TPMODE = 0...")
     while not is_status_ok:
@@ -720,9 +729,9 @@ def rmi_write_position_register(register:int, config:dict, position:dict, group=
   try:
     time.sleep(TIME_BUFFER)
     expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
-    assert set(config.keys()) == expected_keys, "the config isn't correctly written ; frame : " + str(config)
+    assert set(config.keys()) == expected_keys, "the config isn't correctly written ; config : " + str(config)
     expected_keys = {"X", "Y", "Z", "W", "P", "R"}
-    assert set(position.keys()) == expected_keys, "the input position isn't correctly written ; frame : " + str(position)
+    assert set(position.keys()) == expected_keys, "the input position isn't correctly written ; position : " + str(position)
     assert(1 <= register and register <= 100), "register value is out of range"
     write_pr_packet =  {"Command" : "FRC_WritePositionRegister",
                         "RegisterNumber" : register,
@@ -911,12 +920,132 @@ def rmi_call(program_name:str):
   except Exception as e: print("error rmi_call()", e)
 
 
+def rmi_linear_motion(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value, optionals:dict):
+  time.sleep(TIME_BUFFER)
+  try:
+    expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
+    assert set(config.keys()) == expected_keys, "the config isn't correctly written ; config : " + str(config)
+    expected_keys = {"X", "Y", "Z", "W", "P", "R", "Ext1", "Ext2", "Ext3"}
+    assert set(position.keys()) == expected_keys, "the input position isn't correctly written ; position : " + str(position)
+    expected_speed_type = ["mmSec", "Time", "mSec"]
+    assert(speed_type in expected_speed_type), "speed_type isn't correctly written ; speed_type : " + speed_type
+    expected_term_type = ["FINE", "CNT", "CR"]
+    assert(term_type in expected_term_type), "term_type isn't correctly written ; term_type : " + term_type
+    assert(1 <= term_value and term_value <= 100), "term_value is out of range"
+    
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    linear_motion_packet = {"Instruction" : "FRC_LinearMotion",
+                            "SequenceID" : sequence_id,
+                            "Configuration" : config,
+                            "Position" : position,
+                            "SpeedType" : speed_type,
+                            "Speed" : speed,
+                            "TermType" : term_type,
+                            "TermValue" : term_value}
+    linear_motion_packet = linear_motion_packet | optionals # merge two dicts
+    response = send_message(linear_motion_packet)
+    if response is None:
+      raise Exception("Error while sending linear_motion_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_LINEAR_MOTION successful") if request_successful else LOGGER.info("RMI_LINEAR_MOTION failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_linear_motion()", e)
+
+
+def rmi_linear_relative(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value, optionals:dict):
+  time.sleep(TIME_BUFFER)
+  try:
+    expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
+    assert set(config.keys()) == expected_keys, "the config isn't correctly written ; config : " + str(config)
+    expected_keys_position = {"X", "Y", "Z", "W", "P", "R", "Ext1", "Ext2", "Ext3"}
+    assert set(position.keys()) == expected_keys_position, "the input position isn't correctly written ; position : " + str(position)
+    expected_speed_type = ["mmSec", "InchMin", "Time", "mSec"]
+    assert(speed_type in expected_speed_type), "speed_type isn't correctly written ; speed_type : " + speed_type
+    expected_term_type = ["FINE", "CNT", "CR"]
+    assert(term_type in expected_term_type), "term_type isn't correctly written ; term_type : " + term_type
+    assert(1 <= term_value and term_value <= 100), "term_value is out of range"
+    
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    linear_relative_packet = {"Instruction" : "FRC_LinearRelative",
+                              "SequenceID" : sequence_id,
+                              "Configuration" : config,
+                              "Position" : position,
+                              "SpeedType" : speed_type,
+                              "Speed" : speed,
+                              "TermType" : term_type,
+                              "TermValue" : term_value}
+    linear_relative_packet = linear_relative_packet | optionals # merge two dicts
+    response = send_message(linear_relative_packet)
+    if response is None:
+      raise Exception("Error while sending linear_relative_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_LINEAR_RELATIVE successful") if request_successful else LOGGER.info("RMI_LINEAR_RELATIVE failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_linear_relative()", e)
+
+
+def rmi_joint_motion(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value, optionals:dict):
+  time.sleep(TIME_BUFFER)
+  try:
+    expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
+    assert set(config.keys()) == expected_keys, "the config isn't correctly written ; config : " + str(config)
+    expected_keys_position = {"X", "Y", "Z", "W", "P", "R", "Ext1", "Ext2", "Ext3"}
+    assert set(position.keys()) == expected_keys_position, "the input position isn't correctly written ; position : " + str(position)
+    expected_speed_type = ["mmSec", "InchMin", "Time", "mSec"]
+    assert(speed_type in expected_speed_type), "speed_type isn't correctly written ; speed_type : " + speed_type
+    expected_term_type = ["FINE", "CNT", "CR"]
+    assert(term_type in expected_term_type), "term_type isn't correctly written ; term_type : " + term_type
+    assert(1 <= term_value and term_value <= 100), "term_value is out of range"
+    
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
+    linear_relative_packet = {"Instruction" : "FRC_LinearRelative",
+                              "SequenceID" : sequence_id,
+                              "Configuration" : config,
+                              "Position" : position,
+                              "SpeedType" : speed_type,
+                              "Speed" : speed,
+                              "TermType" : term_type,
+                              "TermValue" : term_value}
+    linear_relative_packet = linear_relative_packet | optionals # merge two dicts
+    response = send_message(linear_relative_packet)
+    if response is None:
+      raise Exception("Error while sending linear_relative_packet")
+    error_id = response.get("ErrorID", None)
+    if error_id is None:
+      raise Exception("Error while fetching ErrorID")
+    else:
+      request_successful = error_id == 0
+      error_str = get_error_string(error_id)
+      LOGGER.info("RMI_LINEAR_RELATIVE successful") if request_successful else LOGGER.info("RMI_LINEAR_RELATIVE failed, ErrorID = " + error_str)
+      return request_successful, response
+  except AssertionError as ae: print(ae)
+  except Exception as e: print("error rmi_linear_relative()", e)
+
+
 def test_all_functions():
   print("Run all function tests\n")
 
 def test_print(request:Request,
-                   response:Response,
-                   next:Callable):
+               response:Response,
+               next:Callable):
 
   try:
     #update the status

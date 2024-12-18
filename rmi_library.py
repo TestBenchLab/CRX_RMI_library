@@ -1,7 +1,5 @@
-from multiprocessing.connection import wait
 from server.exceptions import ServerException
 from utils import GetAttrEnum, get_config_from_file, get_validation_schemas
-
 from dotenv import load_dotenv
 from typing import Callable, Dict, Tuple
 from server.amqp import AMQPClient
@@ -12,28 +10,27 @@ from exceptions import BaseException
 from server.exceptions import ServerException
 import logging
 import argparse
+from redis import Redis, exceptions as redis_exceptions
+import json
+import traceback
+import sys
+import os
+import csv
+import socket
+import time
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname("."), '../CRX_RMI_library/src')))
+
 #import model
 #from model.action import Action
 #from model.definition import Drilling
-from redis import Redis, exceptions as redis_exceptions
 #import mars
-import json
-import traceback
-
-import sys
-import os
-# add .src in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname("."), '../CRX_RMI_library/src')))
-
-# import modules
-import socket
-import time
 
 load_dotenv()
 
 __VALIDATION_SCHEMA_DIR = './schemas'
 __SERVER_CONFIG_FILE = './config/server.yaml'
-__MARS_CONFIG_FILE = './config/mars.yaml'
+__MARS_CONFIG_FILE = './config//mars.yaml'
 
 # declare amqp topics
 __AMQP_TOPICS = 'request.rmi_library','report.rmi_library'
@@ -45,7 +42,8 @@ REDIS_CLIENT: Redis = None
 
 LOGGER = logging.getLogger("rmi_library")
 
-ROBOT_IP = "192.168.1.10"
+# ROBOT_IP = "192.168.1.10"
+ROBOT_IP = "192.168.0.104"
 ROBOT_PORT = 16001
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -59,7 +57,20 @@ ErrorID_to_str = {
   2556957 : "Invalid sequence ID (2556957)"
 }
 
-TIME_BUFFER = 0.005 #time to wait between each instruction
+key_mapping = {
+    'J1': 'X',
+    'J2': 'Y',
+    'J3': 'Z',
+    'J4': 'W',
+    'J5': 'P',
+    'J6': 'R',
+    'J7': 'Ext1',
+    'J8': 'Ext2',
+    'J9': 'Ext3'
+}
+
+
+TIME_BUFFER = 0.005 # waiting time between each instruction
 SEQUENCE_ID = -1
 
 def get_error_string(error_code:int):
@@ -182,6 +193,63 @@ def route_request(request:Request,
   if request.query.get('path') == '/rmi_library/test'\
     and request.query.get('method') == 'GET':
       try:
+        
+        init_rmi_connection()
+
+        # config = {"UToolNumber" : 2, "UFrameNumber" : 3, "Front" : 0, "Up" : 0, "Left" : 0, "Flip" : 0, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}
+
+        # measured_positions = []
+        
+        # with open('coordonnees.csv', newline='') as csvfile:
+        #   row_count = sum(1 for _ in csv.DictReader(csvfile))
+
+        # with open('coordonnees.csv', newline='') as csvfile:
+        #     reader = csv.DictReader(csvfile)
+        #     i=0
+        #     for row in reader:
+        #       print(f'{i}/{row_count}')
+        #       rmi_write_position_register(10, config, row)
+        #       rmi_call('INBOLT')
+              
+        #       _, pr11 = rmi_read_position_register(11)
+        #       _, pr12 = rmi_read_position_register(12)
+            
+        #       # measured_positions.append(pr11.get("Position").values())
+        #       measured_positions.append(pr12.get("Position").values())
+              
+        #       i += 1
+        
+        config = {"UToolNumber" : 2, "UFrameNumber" : 3, "Front" : 0, "Up" : 0, "Left" : 0, "Flip" : 0, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}
+
+        measured_positions = []
+        
+        with open('coordonnees.csv', newline='') as csvfile:
+          row_count = sum(1 for _ in csv.DictReader(csvfile))
+
+        with open('coordonnees.csv', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            i=0
+            for row in reader:
+              print(f'{i}/{row_count}')
+              rmi_write_position_register(10, config, row)
+              rmi_call('INBOLT')
+              
+              _, pr11 = rmi_read_position_register(11)
+              _, pr12 = rmi_read_position_register(12)
+            
+              # measured_positions.append(pr11.get("Position").values())
+              measured_positions.append(pr12.get("Position").values())
+              
+              i += 1
+              
+        # with open ("output.csv",'a') as csvfile:
+        #   print('writing csv')
+        #   writer = csv.writer(csvfile, delimiter=',',
+        #                     quotechar='|', quoting=csv.QUOTE_MINIMAL)
+
+        #   for row in measured_positions:
+        #     writer.writerow(row)              
+        
         ##print("Message received :", request.body)
         #response = rmi_connect()
         #time.sleep(4)
@@ -195,7 +263,6 @@ def route_request(request:Request,
         #b, response = rmi_initialize()
         #print("response :", response, b)
         
-        init_rmi_connection()
         #rmi_set_uf_ut(2,2)
         #uf = rmi_read_uf_data(2)
         #print(uf)
@@ -216,38 +283,41 @@ def route_request(request:Request,
         #print(uf_ut)
         
         #_, pr = rmi_read_position_register(1)
-        #print(pr)
-        #_, pr = rmi_read_position_register(2)
-        #print(pr)
+        #print(pr)        
         
-        #_, pr = rmi_read_position_register(2)
-        #print(pr)
-        #config = {"UToolNumber" : 2, "UFrameNumber" : 2, "Front" : 0, "Up" : 0, "Left" : 0, "Flip" : 0, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}
-        #position = {"X" : 600.0, "Y" : -230.0, "Z" : 600.0, "W" : -150.0, "P" : -90.0, "R" : 25.0}
-        #rmi_write_position_register(2, config, position)
         #_, pr = rmi_read_position_register(2)
         #print(pr)
         
         #_, tcp_speed = rmi_read_tcp_speed()
         #print(tcp_speed)
 
-        #_, response = rmi_wait_din(SEQUENCE_ID, 145, "OFF")
         #_, response = rmi_set_u_frame(3)
         #print("response :", response)
-        #_, response = rmi_set_u_frame(3)
-        #print("response :", response)
-        rmi_abort()
-        print("response :", response, "\n")
-        _, response = rmi_set_u_frame(1)
-        print("response :", response, "\n")
-        rmi_abort()
-        print("response :", response, "\n")
+        
+        #joint_angles = {key_mapping.get(key, key): value for key, value in position.get('JointAngle', {}).items()}
+        
+        # _, response = rmi_set_u_frame(3)
+                
+        # config = {"UToolNumber" : 2, "UFrameNumber" : 3, "Front" : 0, "Up" : 0, "Left" : 0, "Flip" : 0, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}
+        # _, response = rmi_read_cartesian_position()
+        # print("position1", response.get("Position"))
+        
+        # _, response = rmi_wait_time(5.0)        
+        # _, response = rmi_linear_motion(config,{'X': 90.0, 'Y': 90.0, 'Z': 90.0, 'W': 0.0, 'P': 0.0, 'R': 0.0, 'Ext1': 0.0, 'Ext2': 0.0, 'Ext3': 0.0},"mmSec",100,"FINE",1)
+        #_, response = rmi_joint_motion(config,response.get("Position"),"Percent",100,"FINE",1)
+        #_, response = rmi_joint_motion(config,{'X': 90.0, 'Y': 90.0, 'Z': 90.0, 'W': 0.0, 'P': 0.0, 'R': 0.0, 'Ext1': 0.0, 'Ext2': 0.0, 'Ext3': 0.0},"Percent",100,"FINE",1)
+
+        # _, response = rmi_read_cartesian_position()
+        # print("position2", response.get("Position"))
+
+
         #_, response = rmi_set_u_tool(1)
         #print("response :", response, "\n")
         
         #rmi_connect()
         #b, response = rmi_get_status()
         #print("response :", response, b)
+        
       except Exception as e:
         print(e)
   elif request.query.get('path') == '/rmi_request/init_rmi_connection':
@@ -260,7 +330,7 @@ def route_request(request:Request,
         print(e)
   else:
     # >LOG
-    print('not conform path')
+    print('path not conform')
 
 def send_message(packet):
   type(packet)
@@ -293,7 +363,7 @@ def rmi_connect():
     if error_id is None:
       raise Exception("Error while fetching ErrorID")
     else:
-      #if ErrorID == 0, the service is connected to robot
+      # if ErrorID == 0, the service is connected to robot
       is_connected = error_id == 0
       error_str = get_error_string(error_id)
       
@@ -320,7 +390,7 @@ def rmi_disconnect():
     if error_id is None:
       raise Exception("Error while fetching ErrorID")
     else:
-      #if ErrorID == 0, the service is disconnected from robot
+      # if ErrorID == 0, the service is disconnected from robot
       is_disconnected = error_id == 0
       error_str = get_error_string(error_id)
       if is_disconnected:
@@ -772,16 +842,18 @@ def rmi_read_tcp_speed():
   except Exception as e: print("error rmi_read_tcp_speed()", e)
 
 
-def rmi_wait_din(sequence_id:int, port_number:int, port_value:str):
+def rmi_wait_din(port_number:int, port_value:str):
   time.sleep(TIME_BUFFER)
   try:
     assert (port_value in ["ON", "OFF"]), "Invalid port value ; port_value : " + port_value
     assert (0 <= port_number and port_number <= 512), "Invalid port number ; port_number : " + port_number
+    global SEQUENCE_ID
+    sequence_id = SEQUENCE_ID
+    SEQUENCE_ID += 1
     wait_din_packet = {"Instruction" : "FRC_WaitDIN",
                        "SequenceID" : sequence_id,
                        "PortNumber" : port_number,
                        "portValue" : port_value}
-    print("coucou")
     response = send_message(wait_din_packet)
     if response is None:
       raise Exception("Error while sending wait_din_packet")
@@ -920,7 +992,7 @@ def rmi_call(program_name:str):
   except Exception as e: print("error rmi_call()", e)
 
 
-def rmi_linear_motion(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value, optionals:dict):
+def rmi_linear_motion(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value):
   time.sleep(TIME_BUFFER)
   try:
     expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
@@ -944,7 +1016,7 @@ def rmi_linear_motion(config:dict, position:dict, speed_type:str, speed, term_ty
                             "Speed" : speed,
                             "TermType" : term_type,
                             "TermValue" : term_value}
-    linear_motion_packet = linear_motion_packet | optionals # merge two dicts
+    linear_motion_packet = linear_motion_packet # merge two dicts
     response = send_message(linear_motion_packet)
     if response is None:
       raise Exception("Error while sending linear_motion_packet")
@@ -999,15 +1071,14 @@ def rmi_linear_relative(config:dict, position:dict, speed_type:str, speed, term_
   except AssertionError as ae: print(ae)
   except Exception as e: print("error rmi_linear_relative()", e)
 
-
-def rmi_joint_motion(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value, optionals:dict):
+def rmi_joint_motion(config:dict, position:dict, speed_type:str, speed, term_type:str, term_value):
   time.sleep(TIME_BUFFER)
   try:
     expected_keys = {"UToolNumber", "UFrameNumber", "Front", "Up", "Left", "Flip", "Turn4", "Turn5", "Turn6"}
     assert set(config.keys()) == expected_keys, "the config isn't correctly written ; config : " + str(config)
     expected_keys_position = {"X", "Y", "Z", "W", "P", "R", "Ext1", "Ext2", "Ext3"}
     assert set(position.keys()) == expected_keys_position, "the input position isn't correctly written ; position : " + str(position)
-    expected_speed_type = ["mmSec", "InchMin", "Time", "mSec"]
+    expected_speed_type = ["Percent", "Time", "mSec"]
     assert(speed_type in expected_speed_type), "speed_type isn't correctly written ; speed_type : " + speed_type
     expected_term_type = ["FINE", "CNT", "CR"]
     assert(term_type in expected_term_type), "term_type isn't correctly written ; term_type : " + term_type
@@ -1016,7 +1087,7 @@ def rmi_joint_motion(config:dict, position:dict, speed_type:str, speed, term_typ
     global SEQUENCE_ID
     sequence_id = SEQUENCE_ID
     SEQUENCE_ID += 1
-    linear_relative_packet = {"Instruction" : "FRC_LinearRelative",
+    joint_motion_packet = {"Instruction" : "FRC_JointMotion",
                               "SequenceID" : sequence_id,
                               "Configuration" : config,
                               "Position" : position,
@@ -1024,20 +1095,21 @@ def rmi_joint_motion(config:dict, position:dict, speed_type:str, speed, term_typ
                               "Speed" : speed,
                               "TermType" : term_type,
                               "TermValue" : term_value}
-    linear_relative_packet = linear_relative_packet | optionals # merge two dicts
-    response = send_message(linear_relative_packet)
+    
+    joint_motion_packet = joint_motion_packet #| optionals # merge two dicts
+    response = send_message(joint_motion_packet)
     if response is None:
-      raise Exception("Error while sending linear_relative_packet")
+      raise Exception("Error while sending joint_motion_packet")
     error_id = response.get("ErrorID", None)
     if error_id is None:
       raise Exception("Error while fetching ErrorID")
     else:
       request_successful = error_id == 0
       error_str = get_error_string(error_id)
-      LOGGER.info("RMI_LINEAR_RELATIVE successful") if request_successful else LOGGER.info("RMI_LINEAR_RELATIVE failed, ErrorID = " + error_str)
+      LOGGER.info("RMI_JOINT_MOTION successful") if request_successful else LOGGER.info("RMI_JOINT_MOTION failed, ErrorID = " + error_str)
       return request_successful, response
   except AssertionError as ae: print(ae)
-  except Exception as e: print("error rmi_linear_relative()", e)
+  except Exception as e: print("error rmi_joint_motion()", e)
 
 
 def test_all_functions():

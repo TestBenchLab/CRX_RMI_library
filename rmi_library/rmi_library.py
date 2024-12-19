@@ -5,6 +5,7 @@ import sys
 import os
 import socket
 import time
+import traceback
 
 LOGGER = logging.getLogger("rmi_library")
 
@@ -15,9 +16,13 @@ class RMILibrary:
     self.sock = None
     self.TIME_BUFFER = 0.005 # waiting time between each instruction
     self.SEQUENCE_ID = -1
-    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.sock.connect((self.ROBOT_IP, self.ROBOT_PORT))
     
+    try:
+      self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      self.sock.connect((self.ROBOT_IP, self.ROBOT_PORT))
+    except Exception:
+      print(traceback.format_exc())
+
     self.ErrorID_to_str = {
       2556932 : "Invalid Position Register (2556932)",
       2556936 : "Cannot Execute TP program (2556936)",
@@ -889,7 +894,6 @@ if __name__ == '__main__':
     # define log format
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     LOGGER.info("run rmi_library service")
-    
     test_object = RMILibrary()
     test_object.quick_test()
 

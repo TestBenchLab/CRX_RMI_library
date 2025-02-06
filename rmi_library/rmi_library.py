@@ -10,7 +10,7 @@ import traceback
 LOGGER = logging.getLogger("rmi_library")
 
 class RMILibrary:
-  def __init__(self, robot_ip="192.168.1.10", robot_port=16001): # ROBOT REEL = "192.168.0.104" / ROBOGUIDE = "192.168.1.10"
+  def __init__(self, robot_ip="192.168.0.104", robot_port=16001): # ROBOT REEL = "192.168.0.104" / ROBOGUIDE = "192.168.1.10"
     self.ROBOT_IP = robot_ip
     self.ROBOT_PORT = robot_port
     self.sock = None
@@ -21,8 +21,8 @@ class RMILibrary:
       self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       self.sock.connect((self.ROBOT_IP, self.ROBOT_PORT))
     except Exception:
-      print(traceback.format_exc())
-
+      LOGGER.error(traceback.format_exc())
+      
     self.ErrorID_to_str = {
       2556932 : "Invalid Position Register (2556932)",
       2556936 : "Cannot Execute TP program (2556936)",
@@ -30,9 +30,12 @@ class RMILibrary:
       2556941 : "Invalid RMI Command (2556941)",
       2556943 : "Invalid Controller State (2556943)",
       2556950 : "Invalid Text String (2556950)",
-      2556957 : "Invalid sequence ID (2556957)"
+      2556957 : "Invalid sequence ID (2556957)",
+      2556977 : "Invalid Instruction packet (2556977)",
     }
-
+    
+    self.init_rmi_connection()
+    
     self.key_mapping = {
       'J1': 'X',
       'J2': 'Y',
@@ -44,24 +47,34 @@ class RMILibrary:
       'J8': 'Ext2',
       'J9': 'Ext3'
     }
+  
+  def reconnect_socket(self):
+    try:
+      self.sock.connect((self.ROBOT_IP, self.ROBOT_PORT))
+      LOGGER.warning("socket successfully reconnected")
+    except Exception as e:
+      if e.errno == 106: 
+        LOGGER.warning("socket already connected")
+      else: 
+        LOGGER.error("socket reconnection failed")
+        LOGGER.error(traceback.format_exc())
+
 
   def get_error_string(self, error_code:int):
-    error_str = self.ErrorID_to_str[error_code] if error_code in self.ErrorID_to_str else "Error code : " + str(error_code)
+    error_str = self.ErrorID_to_str[error_code] if error_code in self.ErrorID_to_str else "Error ID : " + str(error_code)
     return error_str
 
   def quick_test(self):
         try:
-          
-          self.init_rmi_connection()
-          
+                    
           config = {"UToolNumber" : 4, "UFrameNumber" : 4, "Front" : 1, "Up" : 1, "Left" : 0, "Flip" : 0, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}  
-          position = {'X': 10.0, 'Y': 0.0, 'Z': 0.0, 'W': -150.0, 'P': 20.0, 'R': 90.0, 'Ext1': 0.0, 'Ext2': 0.0, 'Ext3': 0.0}
+          position = {'X': 10.0, 'Y': 0.0, 'Z': 0.0, 'W': -150.0, 'P': 20.0, 'R': 90.0}
 
-          _, response = self.rmi_linear_motion(config, position, "mmSec", 100, "FINE", 1)
-          _, response = self.rmi_linear_relative(config, position, "mmSec", 100, "FINE", 1)
+          # _, response = self.rmi_linear_motion(config, position, "mmSec", 100, "FINE", 1)
+          # _, response = self.rmi_linear_relative(config, position, "mmSec", 100, "FINE", 1)
           # _, response = rmi_joint_motion(config,position,"Percent",100,"FINE",1)
 
-          print("response :", response)
+          # print("response :", response)
 
           ##print("Message received :", request.body)
           #response = rmi_connect()
@@ -82,8 +95,8 @@ class RMILibrary:
           #uf = rmi_read_uf_data(2)
           #print(uf)
           
-          #_, pos = rmi_read_cartesian_position()
-          #print(pos)
+          self.rmi_read_cartesian_position()
+
           #_, pos = rmi_read_joint_angles()
           #print(pos)
           #rmi_set_override(52)
@@ -102,10 +115,11 @@ class RMILibrary:
           
           #_, tcp_speed = rmi_read_tcp_speed()
           #print(tcp_speed)
-
-          #_, response = rmi_set_u_frame(3)
-          #print("response :", response)
           
+          # response = self.rmi_set_u_tool(3)
+          
+          # response = self.rmi_write_position_register(1, config, position)
+
           #joint_angles = {key_mapping.get(key, key): value for key, value in position.get('JointAngle', {}).items()}
           
           # _, response = rmi_set_u_frame(3)
@@ -133,49 +147,55 @@ class RMILibrary:
         except Exception as e:
           exc_type, exc_obj, exc_tb = sys.exc_info()
           fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-          print(exc_type, fname, exc_tb.tb_lineno)
+          LOGGER.error(exc_type, fname, exc_tb.tb_lineno)
 
   def send_message(self,packet):
     type(packet)
-    try:
-      #send the message
-      self.sock.sendall((json.dumps(packet) + "\r\n").encode('utf-8'))
-      
-      #decode the response
-      response = self.sock.recv(1024).decode('utf-8')
+    try:        
+      self.sock.sendall((json.dumps(packet) + "\r\n").encode('utf-8')) # send message
+      response = self.sock.recv(1024).decode('utf-8') # decode response
       response_data = json.loads(response)
-      print("REPONSE RECUE", response_data)
-      #print(f"Robot response : {response_data}")
+      LOGGER.info(f"REPONSE RECUE: {response_data}")
       return response_data
-    except Exception as e: print("error send_message()", e)
+    except Exception:
+      pass
 
   def rmi_connect(self):
     time.sleep(self.TIME_BUFFER)
-    try:      
-      # connection to robot via RMI
-      connect_packet = {"Communication" : "FRC_Connect"}
+    try:
+      connect_packet = {"Communication": "FRC_Connect"}
       response = self.send_message(connect_packet)
+      
       if response is None:
-        raise Exception("Error while sending connect_packet")
-      error_id = response.get("ErrorID", None)
+          raise Exception("Failed to send connect_packet. No response received.")
+
+      error_id = response.get("ErrorID")
       if error_id is None:
-        raise Exception("Error while fetching ErrorID")
+          raise Exception("ErrorID is missing in the response.")
+
+      is_connected = error_id == 0
+      error_str = self.get_error_string(error_id)
+
+      new_port = response.get("PortNumber")
+      if new_port is None:
+          raise Exception("PortNumber is missing in the response. Unable to proceed.")
+
+      self.sock.close()
+      self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      self.sock.connect((self.ROBOT_IP, new_port))
+
+      if is_connected:
+          LOGGER.warning("RMI connection successful.")
+      elif error_id == 2556954:
+          LOGGER.warning("RMI already connected")
       else:
-        # if ErrorID == 0, the service is connected to robot
-        is_connected = error_id == 0
-        error_str = self.get_error_string(error_id)
-        
-        # the connection request give us a new port number to use, so we recreate the socket
-        new_port = response.get("PortNumber", None)
-        if new_port is None:
-          raise Exception("Error while fetching new PortNumber")
-        else:
-          self.sock.close()
-          self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-          self.sock.connect((self.ROBOT_IP, new_port))
-        LOGGER.info("RMI_CONNECT successful") if is_connected else LOGGER.info("RMI_CONNECT failed, ErrorID = " + error_str)
-        return is_connected, response
-    except Exception as e: LOGGER.error(f"error rmi_connect(): {str(e)}")
+          LOGGER.error(f"RMI connection failed: {error_str}")
+
+      return is_connected, response
+
+    except Exception as e:
+      LOGGER.error(f"Error in rmi_connect: {str(e)}")
+      return False, None
 
   def rmi_disconnect(self):
     time.sleep(self.TIME_BUFFER)
@@ -193,11 +213,12 @@ class RMILibrary:
         error_str = self.get_error_string(error_id)
         if is_disconnected:
           self.sock.close()
-          LOGGER.info("RMI_DISCONNECT successful")
+          LOGGER.warning("RMI_DISCONNECT successful")
         else:
-          LOGGER.info("RMI_DISCONNECT failed, ErrorID = " + error_str)
+          LOGGER.warning(f"RMI_DISCONNECT failed: {error_str}")
         return is_disconnected, response
-    except Exception as e: print(f"error rmi_disconnect(): {str(e)}")
+    except Exception as e: 
+      LOGGER.error(f"error rmi_disconnect(): {str(e)}")
 
 
   def rmi_get_status(self,verbose=True):
@@ -214,15 +235,14 @@ class RMILibrary:
         request_successful = error_id == 0
         if verbose:
           error_str = self.get_error_string(error_id)
-          LOGGER.info("RMI_GETSTATUS successful") if request_successful else LOGGER.info("RMI_GETSTATUS failed, ErrorID = " + error_str)
-        print("STATUS =", response) #temp
+          LOGGER.warning("RMI_GETSTATUS successful") if request_successful else LOGGER.warning(f"RMI_GETSTATUS failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_get_status()", e)
+    except Exception as e: LOGGER.error(f"error rmi_get_status(): {e}")
 
 
   def is_robot_available_to_initialize(self,data):
     if data.get("ErrorID", -1) != 0:
-      print("Error while fetching robot status")
+      LOGGER.error("Error while fetching robot status")
     else:
       servo_ready = data.get("ServoReady", None)
       tp_mode = data.get("TPMode", None)
@@ -231,7 +251,7 @@ class RMILibrary:
         is_available = servo_ready == 1 and tp_mode == 0
         return is_available
       else:
-        print("Error while reading ServoReady or TPMode")
+        LOGGER.error("Error while reading ServoReady or TPMode")
         return False
 
 
@@ -249,9 +269,9 @@ class RMILibrary:
         #if ErrorID == 0, rmi is initialized
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_INITIALIZE successful") if request_successful else LOGGER.info("RMI_INITIALIZE failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_INITIALIZE successful") if request_successful else LOGGER.warning(f"RMI_INITIALIZE failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_initialize()", e)
+    except Exception as e: LOGGER.error("error rmi_initialize()", e)
 
 
   def rmi_abort(self):
@@ -267,9 +287,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_ABORT successful") if request_successful else LOGGER.info("RMI_ABORT failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_ABORT successful") if request_successful else LOGGER.warning(f"RMI_ABORT failed: {error_str}")
         return response
-    except Exception as e: print("error rmi_abort()", e)
+    except Exception as e: LOGGER.error(f"error rmi_abort(): {e}")
 
 
   def rmi_reset(self):
@@ -285,9 +305,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_RESET successful") if request_successful else LOGGER.info("RMI_RESET failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_RESET successful") if request_successful else LOGGER.warning(f"RMI_RESET failed: {error_str}")
         return response
-    except Exception as e: print("error rmi_reset()", e)
+    except Exception as e: LOGGER.error(f"error rmi_reset(): {e}")
 
 
   def rmi_pause(self):
@@ -303,9 +323,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_PAUSE successful") if request_successful else LOGGER.info("RMI_PAUSE failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_PAUSE successful") if request_successful else LOGGER.warning(f"RMI_PAUSE failed: {error_str}")
         return response
-    except Exception as e: print("error rmi_pause()", e)
+    except Exception as e: LOGGER.error(f"error rmi_pause(): {e}")
     
 
   def rmi_continue(self):
@@ -321,40 +341,35 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.et_error_string(error_id)
-        LOGGER.info("RMI_CONTINUE successful") if request_successful else LOGGER.info("RMI_CONTINUE failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_CONTINUE successful") if request_successful else LOGGER.warning(f"RMI_CONTINUE failed: {error_str}")
         return response
-    except Exception as e: print("error rmi_continue()", e)
+    except Exception as e: LOGGER.error(f"error rmi_continue(): {e}")
     
-
-  #TODO savoir à quoi sert le "count" optionnel
   def rmi_read_error(self):
     time.sleep(self.TIME_BUFFER)
     try:
       read_error_packet = {"Command" : "FRC_ReadError"}
       response = self.send_message(read_error_packet)
       return response
-    except Exception as e: print("error read_error_packet()", e)
+    except Exception as e: LOGGER.error(f"error read_error(): {e}")
 
 
   def init_rmi_connection(self):
     try:
       is_connected, _ = self.rmi_connect()
-      if not is_connected:
-        raise Exception("Error while executing rmi_connect()")
       self.rmi_reset()
       self.rmi_abort()
       _, status = self.rmi_get_status()
       self.SEQUENCE_ID = 1
       is_status_ok = self.is_robot_available_to_initialize(status)
-      LOGGER.info("Robot ready for initialization") if is_status_ok else LOGGER.info("waiting for ServoReady = 1 and TPMODE = 0...")
+      LOGGER.warning("Robot ready for initialization") if is_status_ok else LOGGER.warning("waiting for ServoReady = 1 and TPMODE = 0...")
       while not is_status_ok:
         time.sleep(1)
+        LOGGER.error("Robot status is not OK, retrying initialization...")
         _, status = self.rmi_get_status(False)
         is_status_ok = self.is_robot_available_to_initialize(status)
-      print("Robot status is OK, initialization...")
       _, _ = self.rmi_initialize()
-    except Exception as e: print("error init_rmi_connection()", e)
-
+    except Exception as e: LOGGER.error(f"error init_rmi_connection(): {e}")
 
   def rmi_set_uf_ut(self,uf:int, ut:int, group=1):
     try:
@@ -373,10 +388,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_SET_UF_UT successful") if request_successful else LOGGER.info("RMI_SET_UF_UT failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_SET_UF_UT successful") if request_successful else LOGGER.warning(f"RMI_SET_UF_UT failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_set_uf_ut()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_set_uf_ut(): {e}")
 
 
   def rmi_read_uf_data(self, uf:int, group=1):
@@ -395,10 +410,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_READ_UF_DATA successful") if request_successful else LOGGER.info("RMI_READ_UF_DATA failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_READ_UF_DATA successful") if request_successful else LOGGER.warning(f"RMI_READ_UF_DATA failed: {error_str}")
         return response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_read_uf_data()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_read_uf_data(): {e}")
 
 
   def rmi_write_uf_data(self, uf_number:int, frame:dict, group=1):
@@ -420,10 +435,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_WRITE_UF_DATA successful") if request_successful else LOGGER.info("RMI_WRITE_UF_DATA failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_WRITE_UF_DATA successful") if request_successful else LOGGER.warning(f"RMI_WRITE_UF_DATA failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_write_uf_data()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_write_uf_data(): {e}")
 
 
   def rmi_read_ut_data(self, ut:int, group=1):
@@ -442,10 +457,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_READ_UT_DATA successful") if request_successful else LOGGER.info("RMI_READ_UT_DATA failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_READ_UT_DATA successful") if request_successful else LOGGER.warning(f"RMI_READ_UT_DATA failed: {error_str}")
         return response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_read_ut_data()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_read_ut_data(): {e}")
 
 
   def rmi_write_ut_data(self, ut_number:int, frame:dict, group=1):
@@ -467,10 +482,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_WRITE_UT_DATA successful") if request_successful else LOGGER.info("RMI_WRITE_UT_DATA failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_WRITE_UT_DATA successful") if request_successful else LOGGER.warning(f"RMI_WRITE_UT_DATA failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_write_ut_data()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_write_ut_data(): {e}")
 
 
   def rmi_read_d_in(self, port_number:int):
@@ -497,9 +512,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_READ_CARTESIAN_POSITION successful") if request_successful else LOGGER.info("RMI_READ_CARTESIAN_POSITION failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_READ_CARTESIAN_POSITION successful") if request_successful else LOGGER.warning(f"RMI_READ_CARTESIAN_POSITION failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_read_cartesian_position()", e)
+    except Exception as e: LOGGER.error(f"error rmi_read_cartesian_position(): {e}")
 
 
   def rmi_read_joint_angles(self, group=1):
@@ -516,9 +531,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_READ_CARTESIAN_POSITION successful") if request_successful else LOGGER.info("RMI_READ_CARTESIAN_POSITION failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_READ_CARTESIAN_POSITION successful") if request_successful else LOGGER.warning(f"RMI_READ_CARTESIAN_POSITION failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_read_joint_angles()", e)
+    except Exception as e: LOGGER.error(f"error rmi_read_joint_angles(): {e}")
 
 
   def rmi_set_override(self, value:int):
@@ -536,10 +551,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_SET_OVERRIDE successful") if request_successful else LOGGER.info("RMI_SET_OVERRIDE failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_SET_OVERRIDE successful") if request_successful else LOGGER.warning(f"RMI_SET_OVERRIDE failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_set_override()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_set_override(): {e}")
 
 
   def rmi_get_uf_ut(self, group=1):
@@ -556,9 +571,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_GET_UF_UT successful") if request_successful else LOGGER.info("RMI_GET_UF_UT failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_GET_UF_UT successful") if request_successful else LOGGER.warning(f"RMI_GET_UF_UT failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_read_joint_angles()", e)
+    except Exception as e: LOGGER.error(f"error rmi_get_uf_ut(): {e}")
 
 
   def rmi_read_position_register(self, register:int, group=1):
@@ -577,10 +592,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_READ_PR successful") if request_successful else LOGGER.info("RMI_READ_PR failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_READ_PR successful") if request_successful else LOGGER.warning(f"RMI_READ_PR failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_read_position_register()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_read_position_register(): {e}")
 
 
   def rmi_write_position_register(self, register:int, config:dict, position:dict, group=1):
@@ -596,7 +611,6 @@ class RMILibrary:
                           "Configuration" : config,
                           "Position" : position,
                           "Group" : group}
-      
       response = self.send_message(write_pr_packet)
       if response is None:
         raise Exception("Error while sending write_pr")
@@ -606,10 +620,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_WRITE_PR successful") if request_successful else LOGGER.info("RMI_WRITE_PR failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_WRITE_PR successful") if request_successful else LOGGER.warning(f"RMI_WRITE_PR failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_write_position_register()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_write_position_register(): {e}")
 
 
   def rmi_read_tcp_speed(self):
@@ -625,9 +639,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_READ_TCP_SPEED successful") if request_successful else LOGGER.info("RMI_READ_TCP_SPEED failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_READ_TCP_SPEED successful") if request_successful else LOGGER.warning(f"RMI_READ_TCP_SPEED failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_read_tcp_speed()", e)
+    except Exception as e: LOGGER.error(f"error rmi_read_tcp_speed(): {e}")
 
 
   def rmi_wait_din(self, port_number:int, port_value:str):
@@ -650,10 +664,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_WAIT_DIN successful") if request_successful else LOGGER.info("RMI_WAIT_DIN failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_WAIT_DIN successful") if request_successful else LOGGER.warning(f"RMI_WAIT_DIN failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_wait_din()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_wait_din(): {e}")
 
 
   def rmi_set_u_frame(self, frame_number:int):
@@ -674,10 +688,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_SET_U_FRAME successful") if request_successful else LOGGER.info("RMI_SET_U_FRAME failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_SET_U_FRAME successful") if request_successful else LOGGER.warning(f"RMI_SET_U_FRAME failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_set_u_frame()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_set_u_frame(): {e}")
 
 
   def rmi_set_u_tool(self, tool_number:int):
@@ -689,6 +703,7 @@ class RMILibrary:
       set_u_tool_packet = {"Instruction" : "FRC_SetUTool",
                           "SequenceID" : sequence_id,
                           "ToolNumber" : tool_number}
+      print(set_u_tool_packet)
       response = self.send_message(set_u_tool_packet)
       if response is None:
         raise Exception("Error while sending set_u_tool_packet")
@@ -698,10 +713,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_SET_U_TOOL successful") if request_successful else LOGGER.info("RMI_SET_U_TOOL failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_SET_U_TOOL successful") if request_successful else LOGGER.warning(f"RMI_SET_U_TOOL failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_set_u_tool()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_set_u_tool(): {e}")
 
 
   def rmi_wait_time(self, waiting_time:float):
@@ -722,10 +737,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_WAIT_TIME successful") if request_successful else LOGGER.info("RMI_WAIT_TIME failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_WAIT_TIME successful") if request_successful else LOGGER.warning(f"RMI_WAIT_TIME failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_wait_time()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_wait_time(): {e}")
 
 
   def rmi_set_payload(self, schedule_number:int):
@@ -746,10 +761,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_SET_PAYLOAD successful") if request_successful else LOGGER.info("RMI_SET_PAYLOAD failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_SET_PAYLOAD successful") if request_successful else LOGGER.warning(f"RMI_SET_PAYLOAD failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_set_payload()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_set_payload(): {e}")
 
 
   def rmi_call(self, program_name:str):
@@ -769,9 +784,9 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_CALL successful") if request_successful else LOGGER.info("RMI_CALL failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_CALL successful") if request_successful else LOGGER.warning(f"RMI_CALL failed: {error_str}")
         return request_successful, response
-    except Exception as e: print("error rmi_call()", e)
+    except Exception as e: LOGGER.error(f"error rmi_call(): {e}")
 
 
   def rmi_linear_motion(self, config:dict, position:dict, speed_type:str, speed, term_type:str, term_value):
@@ -807,10 +822,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_LINEAR_MOTION successful") if request_successful else LOGGER.info("RMI_LINEAR_MOTION failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_LINEAR_MOTION successful") if request_successful else LOGGER.warning(f"RMI_LINEAR_MOTION failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_linear_motion()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_linear_motion(): {e}")
 
 
   def rmi_linear_relative(self, config:dict, position:dict, speed_type:str, speed, term_type:str, term_value, optionals:dict= {}):
@@ -845,10 +860,10 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_LINEAR_RELATIVE successful") if request_successful else LOGGER.info("RMI_LINEAR_RELATIVE failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_LINEAR_RELATIVE successful") if request_successful else LOGGER.warning(f"RMI_LINEAR_RELATIVE failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_linear_relative()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_linear_relative(): {e}")
 
   def rmi_joint_motion(self, config:dict, position:dict, speed_type:str, speed, term_type:str, term_value):
     time.sleep(self.TIME_BUFFER)
@@ -884,15 +899,24 @@ class RMILibrary:
       else:
         request_successful = error_id == 0
         error_str = self.get_error_string(error_id)
-        LOGGER.info("RMI_JOINT_MOTION successful") if request_successful else LOGGER.info("RMI_JOINT_MOTION failed, ErrorID = " + error_str)
+        LOGGER.warning("RMI_JOINT_MOTION successful") if request_successful else LOGGER.warning(f"RMI_JOINT_MOTION failed: {error_str}")
         return request_successful, response
-    except AssertionError as ae: print(ae)
-    except Exception as e: print("error rmi_joint_motion()", e)
+    except AssertionError as ae: LOGGER.error(ae)
+    except Exception as e: LOGGER.error(f"error rmi_joint_motion(): {e}")
 
 if __name__ == '__main__':
   try:
     # define log format
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
+    logging.basicConfig(
+      level=logging.INFO,  
+      format='%(asctime)s - %(levelname)s - %(message)s', 
+      handlers=[
+       logging.StreamHandler()
+      ]
+    )
+    
     LOGGER.info("run rmi_library service")
     test_object = RMILibrary()
     test_object.quick_test()
@@ -905,6 +929,6 @@ if __name__ == '__main__':
     sys.exit(1)
   except Exception as error:
     LOGGER.error(error)
-    traceback.print_exc()
+    traceback.LOGGER.error_exc()
   finally:
     exit(1)

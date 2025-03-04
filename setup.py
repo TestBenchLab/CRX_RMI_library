@@ -5,6 +5,7 @@ setup(
     version='0.1',                    
     packages=find_packages(),         # Find-submodules
     install_requires=[                # External Dependencies
+        "numpy>=1.22.4",
     ],
     author='Valentin Deguil / Victor Gaudin',
     description='RMI Library to send robot commands through TCP/IP',

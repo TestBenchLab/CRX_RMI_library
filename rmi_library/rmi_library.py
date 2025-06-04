@@ -4,27 +4,23 @@ import traceback
 import sys
 import socket
 import time
+import coloredlogs
 
-
+LOG_FORMAT = "%(levelname)s - %(message)s"
+coloredlogs.install(level=logging.INFO, fmt=LOG_FORMAT)
 LOGGER = logging.getLogger("rmi_library")
 
 
 class RMILibrary:
     def __init__(
-        self, robot_ip="192.168.0.10", robot_port=16001
-    ):  # ROBOT REEL = "192.168.0.104" / ROBOGUIDE = "192.168.1.10"
+        self, robot_ip="192.168.0.2", robot_port=16001
+    ):  # ROBOT REEL = "192.168.0.104" / ROBOGUIDE = "192.168.0.10"
         self.ROBOT_IP = robot_ip
         self.ROBOT_PORT = robot_port
         self.sock = None
         self.TIME_BUFFER = 0.005  # waiting time between each instruction
         self.SEQUENCE_ID = -1
-
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect((self.ROBOT_IP, self.ROBOT_PORT))
-        except Exception as e:
-            LOGGER.error(e)
-            return
+        self.global_verbose = True
 
         self.ErrorID_to_str = {
             2556932: "Invalid Position Register (2556932)",
@@ -39,20 +35,19 @@ class RMILibrary:
             2556971: "Robot in Single Step Mode (2556971)",
         }
 
-        self.init_rmi_connection()
+        self.init_rmi_connection(verbose=True)
 
-    def is_socket_active(self):
+    def is_socket_active(self, verbose=True):
         """Check if the socket is currently active"""
-        if self.sock is None:
+        if self.sock:
+            try:
+                self.sock.send(b"")
+                return True
+            except (socket.error, BrokenPipeError):
+                pass
+        if verbose:
             LOGGER.error("RMI socket is not active")
-            return False
-
-        try:
-            self.sock.send(b"")  # Send an empty packet
-            return True
-        except (socket.error, BrokenPipeError):
-            LOGGER.error("RMI socket is not active")
-            return False
+        return False
 
     def get_error_string(self, error_code: int):
         error_str = (
@@ -62,52 +57,59 @@ class RMILibrary:
 
     def quick_test(self):
         try:
+            self.global_verbose = True
+
             config = {
-                "UToolNumber": 4,
-                "UFrameNumber": 4,
+                "UToolNumber": 7,
+                "UFrameNumber": 0,
                 "Front": 1,
                 "Up": 1,
                 "Left": 0,
-                "Flip": 0,
+                "Flip": 1,
                 "Turn4": 0,
                 "Turn5": 0,
                 "Turn6": 0,
             }
-            # position = {'X': 10.0, 'Y': 0.0, 'Z': 0.0, 'W': -150.0, 'P': 20.0, 'R': 90.0}
 
-            # self.rmi_read_cartesian_position()
-
-            # config = {"UToolNumber" : 7, "UFrameNumber" : 3, "Front" : 1, "Up" : 1, "Left" : 0, "Flip" : 1, "Turn4" : 0, "Turn5" : 0, "Turn6" : 0}
-
-            # self.rmi_set_u_frame
-            # self.rmi_linear_motion(config,{'X': 0.0, 'Y': 0.0, 'Z': 5.0, 'W': 0.0, 'P': 0.0, 'R': 0.0, 'Ext1': 0.0, 'Ext2': 0.0, 'Ext3': 0.0},"mmSec",100,"FINE",1)
-
-            # self.rmi_write_d_out(1, "ON")
-
-            # self.rmi_read_d_in(1)
-
-            self.rmi_call("TESTWEB")
+            while True:
+                _, current_position = self.rmi_read_cartesian_position()
+                config = current_position["Configuration"]
+                self.rmi_set_u_tool(config["UToolNumber"])
+                self.rmi_set_u_frame(config["UFrameNumber"])
+                current_position = current_position["Position"]
+                updated_position = current_position.copy()
+                updated_position.update({"Z": current_position["Z"] + 5})
+                _, response = self.rmi_linear_motion(config, updated_position, "mmSec", 5, "FINE", 1)
+                logging.error(response)
+                input("Press Enter to continue...")
 
         except Exception:
             LOGGER.error(traceback.format_exc())
 
-    def send_message(self, packet):
-        type(packet)
+    def send_message(self, packet, verbose=True):
+        verbose_ = verbose if self.global_verbose else False
         try:
             self.sock.sendall((json.dumps(packet) + "\r\n").encode("utf-8"))  # send message
             response = self.sock.recv(1024).decode("utf-8")  # decode response
             response_data = json.loads(response)
-            LOGGER.info(f"REPONSE RECUE: {response_data}")
+            if verbose_:
+                LOGGER.info(f"REPONSE RECUE: {response_data}")
             return response_data
         except Exception:
             pass
 
-    def rmi_connect(self):
+    def rmi_connect(self, verbose=True):
         time.sleep(self.TIME_BUFFER)
         try:
-            connect_packet = {"Communication": "FRC_Connect"}
-            response = self.send_message(connect_packet)
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((self.ROBOT_IP, self.ROBOT_PORT))
+            except Exception as e:
+                LOGGER.error(f"Socket connection error: {e}")
+                return False, None
 
+            connect_packet = {"Communication": "FRC_Connect"}
+            response = self.send_message(packet=connect_packet, verbose=verbose)
             if response is None:
                 raise Exception("Failed to send connect_packet. No response received.")
 
@@ -115,7 +117,7 @@ class RMILibrary:
             if error_id is None:
                 raise Exception("ErrorID is missing in the response.")
 
-            is_connected = error_id == 0
+            is_connected = (error_id == 0) or (error_id == 2556954)  # 2556954 = "Robot is Already Connected"
 
             new_port = response.get("PortNumber")
             if new_port is None:
@@ -128,20 +130,23 @@ class RMILibrary:
             if is_connected:
                 LOGGER.warning("RMI connection successful.")
             else:
-                error_str = self.get_error_string(error_id)
-                LOGGER.error(f"RMI connection failed: {error_str}")
+                if verbose:
+                    error_str = self.get_error_string(error_id)
+                    LOGGER.error(f"RMI connection failed: {error_str}")
 
             return is_connected, response
 
         except Exception as e:
-            LOGGER.error(f"Error in rmi_connect: {str(e)}")
-            return False, None
+            if verbose:
+                LOGGER.error(f"RMI connection error: {str(e)}")
+            is_connected = False
+            return is_connected, e
 
     def rmi_disconnect(self):
         time.sleep(self.TIME_BUFFER)
         try:
             disconnect_packet = {"Communication": "FRC_Disconnect"}
-            response = self.send_message(disconnect_packet)
+            response = self.send_message(packet=disconnect_packet)
             if response is None:
                 raise Exception("Error while sending disconnect_packet")
             error_id = response.get("ErrorID", None)
@@ -164,7 +169,7 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             get_status_packet = {"Command": "FRC_GetStatus"}
-            response = self.send_message(get_status_packet)
+            response = self.send_message(packet=get_status_packet)
             if response is None:
                 raise Exception("Error while sending get_status_packet")
             error_id = response.get("ErrorID", None)
@@ -224,7 +229,7 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             abort_packet = {"Command": "FRC_Abort"}
-            response = self.send_message(abort_packet)
+            response = self.send_message(packet=abort_packet)
             if response is None:
                 raise Exception("Error while sending abort_packet")
             error_id = response.get("ErrorID", None)
@@ -233,20 +238,20 @@ class RMILibrary:
             else:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
-                (
+                if request_successful:
                     LOGGER.warning("RMI_ABORT successful")
-                    if request_successful
-                    else LOGGER.error(f"RMI_ABORT failed: {error_str}")
-                )
-                return response
+                else:
+                    LOGGER.error(f"RMI_ABORT failed: {error_str}")
+                return request_successful
         except Exception as e:
             LOGGER.error(f"error rmi_abort(): {e}")
+            return False
 
     def rmi_reset(self):
         time.sleep(self.TIME_BUFFER)
         try:
             reset_packet = {"Command": "FRC_Reset"}
-            response = self.send_message(reset_packet)
+            response = self.send_message(packet=reset_packet)
             if response is None:
                 raise Exception("Error while sending reset_packet")
             error_id = response.get("ErrorID", None)
@@ -263,12 +268,13 @@ class RMILibrary:
                 return response
         except Exception as e:
             LOGGER.error(f"error rmi_reset(): {e}")
+            return None
 
     def rmi_pause(self):
         time.sleep(self.TIME_BUFFER)
         try:
             pause_packet = {"Command": "FRC_Pause"}
-            response = self.send_message(pause_packet)
+            response = self.send_message(packet=pause_packet)
             if response is None:
                 raise Exception("Error while sending pause_packet")
             error_id = response.get("ErrorID", None)
@@ -290,7 +296,7 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             continue_packet = {"Command": "FRC_Continue"}
-            response = self.send_message(continue_packet)
+            response = self.send_message(packet=continue_packet)
             if response is None:
                 raise Exception("Error while sending continue_packet")
             error_id = response.get("ErrorID", None)
@@ -312,16 +318,26 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             read_error_packet = {"Command": "FRC_ReadError"}
-            response = self.send_message(read_error_packet)
+            response = self.send_message(packet=read_error_packet)
             return response
         except Exception as e:
             LOGGER.error(f"error read_error(): {e}")
 
-    def init_rmi_connection(self):
+    def init_rmi_connection(self, verbose=True):
         try:
-            self.rmi_connect()
-            self.rmi_reset()
-            self.rmi_abort()
+            
+            success, _ = self.rmi_connect(verbose=verbose)
+            self.is_rmi_running = success
+            if not success:
+                return False
+
+            if not self.rmi_reset():
+                return False
+            
+            success = self.rmi_abort()
+            if not success:
+                return False
+
             _, status = self.rmi_get_status()
             self.SEQUENCE_ID = 1
             is_status_ok = self.is_robot_available_to_initialize(status)
@@ -344,7 +360,7 @@ class RMILibrary:
             time.sleep(self.TIME_BUFFER)
             assert 0 <= uf and uf <= 255 and 0 <= ut and ut <= 255, "uf or ut is out of range"
             set_uf_ut_packet = {"Command": "FRC_SetUFrameUTool", "UFrameNumber": uf, "UToolNumber": ut, "Group": group}
-            response = self.send_message(set_uf_ut_packet)
+            response = self.send_message(packet=set_uf_ut_packet)
             if response is None:
                 raise Exception("Error while sending set_uf_ut_packet")
             error_id = response.get("ErrorID", None)
@@ -369,7 +385,7 @@ class RMILibrary:
             time.sleep(self.TIME_BUFFER)
             assert 0 <= uf and uf <= 255, "uf number is out of range"
             read_uf_data_packet = {"Command": "FRC_ReadUFrameData", "FrameNumber": uf, "Group": group}
-            response = self.send_message(read_uf_data_packet)
+            response = self.send_message(packet=read_uf_data_packet)
             if response is None:
                 raise Exception("Error while sending read_uf_data_packet")
             error_id = response.get("ErrorID", None)
@@ -401,7 +417,7 @@ class RMILibrary:
                 "Frame": frame,
                 "Group": group,
             }
-            response = self.send_message(write_uf_data_packet)
+            response = self.send_message(packet=write_uf_data_packet)
             if response is None:
                 raise Exception("Error while sending write_uf_data_packet")
             error_id = response.get("ErrorID", None)
@@ -426,7 +442,7 @@ class RMILibrary:
             time.sleep(self.TIME_BUFFER)
             assert 0 <= ut and ut <= 255, "ut number is out of range"
             read_ut_data_packet = {"Command": "FRC_ReadUToolData", "ToolNumber": ut, "Group": group}
-            response = self.send_message(read_ut_data_packet)
+            response = self.send_message(packet=read_ut_data_packet)
             if response is None:
                 raise Exception("Error while sending read_ut_data_packet")
             error_id = response.get("ErrorID", None)
@@ -458,7 +474,7 @@ class RMILibrary:
                 "Frame": frame,
                 "Group": group,
             }
-            response = self.send_message(write_ut_data_packet)
+            response = self.send_message(packet=write_ut_data_packet)
             if response is None:
                 raise Exception("Error while sending write_ut_data_packet")
             error_id = response.get("ErrorID", None)
@@ -482,7 +498,7 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             read_cartesian_position_packet = {"Command": "FRC_ReadCartesianPosition", "Group": group}
-            response = self.send_message(read_cartesian_position_packet)
+            response = self.send_message(packet=read_cartesian_position_packet)
             if response is None:
                 raise Exception("Error while sending read_cartesian_position_packet")
             error_id = response.get("ErrorID", None)
@@ -498,13 +514,13 @@ class RMILibrary:
                 )
                 return request_successful, response
         except Exception as e:
-            LOGGER.error(f"error rmi_read_cartesian_position(): {e}")
+            LOGGER.error(f"Error in rmi_read_cartesian_position(): {e}")
 
     def rmi_read_joint_angles(self, group=1):
         time.sleep(self.TIME_BUFFER)
         try:
             read_joint_angles_packet = {"Command": "FRC_ReadJointAngles", "Group": group}
-            response = self.send_message(read_joint_angles_packet)
+            response = self.send_message(packet=read_joint_angles_packet)
             if response is None:
                 raise Exception("Error while sending read_joint_angles_packet")
             error_id = response.get("ErrorID", None)
@@ -527,7 +543,7 @@ class RMILibrary:
         try:
             assert 1 <= value and value <= 100, "override value is out of range"
             set_override_packet = {"Command": "FRC_SetOverRide", "Value": value}
-            response = self.send_message(set_override_packet)
+            response = self.send_message(packet=set_override_packet)
             if response is None:
                 raise Exception("Error while sending set_override_packet")
             error_id = response.get("ErrorID", None)
@@ -551,7 +567,7 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             get_uf_ut_packet = {"Command": "FRC_GetUFrameUTool", "Group": group}
-            response = self.send_message(get_uf_ut_packet)
+            response = self.send_message(packet=get_uf_ut_packet)
             if response is None:
                 raise Exception("Error while sending get_uf_ut_packet")
             error_id = response.get("ErrorID", None)
@@ -574,7 +590,7 @@ class RMILibrary:
         try:
             assert 1 <= register and register <= 100, "register value is out of range"
             read_pr_packet = {"Command": "FRC_ReadPositionRegister", "RegisterNumber": register, "Group": group}
-            response = self.send_message(read_pr_packet)
+            response = self.send_message(packet=read_pr_packet)
             if response is None:
                 raise Exception("Error while sending read_pr_packet")
             error_id = response.get("ErrorID", None)
@@ -611,7 +627,7 @@ class RMILibrary:
                 "Position": position,
                 "Group": group,
             }
-            response = self.send_message(write_pr_packet)
+            response = self.send_message(packet=write_pr_packet)
             if response is None:
                 raise Exception("Error while sending write_pr")
             error_id = response.get("ErrorID", None)
@@ -635,7 +651,7 @@ class RMILibrary:
         time.sleep(self.TIME_BUFFER)
         try:
             read_tcp_speed_packet = {"Command": "FRC_ReadTCPSpeed"}
-            response = self.send_message(read_tcp_speed_packet)
+            response = self.send_message(packet=read_tcp_speed_packet)
             if response is None:
                 raise Exception("Error while sending read_tcp_speed_packet")
             error_id = response.get("ErrorID", None)
@@ -666,7 +682,7 @@ class RMILibrary:
                 "PortNumber": port_number,
                 "portValue": port_value,
             }
-            response = self.send_message(wait_din_packet)
+            response = self.send_message(packet=wait_din_packet)
             if response is None:
                 raise Exception("Error while sending wait_din_packet")
             error_id = response.get("ErrorID", None)
@@ -697,7 +713,7 @@ class RMILibrary:
                 "SequenceID": sequence_id,
                 "FrameNumber": frame_number,
             }
-            response = self.send_message(set_u_frame_packet)
+            response = self.send_message(packet=set_u_frame_packet)
             if response is None:
                 raise Exception("Error while sending set_u_frame_packet")
             error_id = response.get("ErrorID", None)
@@ -724,7 +740,7 @@ class RMILibrary:
             sequence_id = self.SEQUENCE_ID
             self.SEQUENCE_ID += 1
             set_u_tool_packet = {"Instruction": "FRC_SetUTool", "SequenceID": sequence_id, "ToolNumber": tool_number}
-            response = self.send_message(set_u_tool_packet)
+            response = self.send_message(packet=set_u_tool_packet)
             if response is None:
                 raise Exception("Error while sending set_u_tool_packet")
             error_id = response.get("ErrorID", None)
@@ -751,7 +767,7 @@ class RMILibrary:
             sequence_id = self.SEQUENCE_ID
             self.SEQUENCE_ID += 1
             wait_time_packet = {"Instruction": "FRC_WaitTime", "SequenceID": sequence_id, "Time": waiting_time}
-            response = self.send_message(wait_time_packet)
+            response = self.send_message(packet=wait_time_packet)
             if response is None:
                 raise Exception("Error while sending wait_time_packet")
             error_id = response.get("ErrorID", None)
@@ -782,7 +798,7 @@ class RMILibrary:
                 "SequenceID": sequence_id,
                 "ScheduleNumber": schedule_number,
             }
-            response = self.send_message(set_pay_load_packet)
+            response = self.send_message(packet=set_pay_load_packet)
             if response is None:
                 raise Exception("Error while sending set_pay_load_packet")
             error_id = response.get("ErrorID", None)
@@ -810,7 +826,7 @@ class RMILibrary:
             sequence_id = self.SEQUENCE_ID
             self.SEQUENCE_ID += 1
             call_packet = {"Instruction": "FRC_Call", "SequenceID": sequence_id, "ProgramName": program_name}
-            response = self.send_message(call_packet)
+            response = self.send_message(packet=call_packet)
             if response is None:
                 raise Exception("Error while sending call_packet")
             error_id = response.get("ErrorID", None)
@@ -856,7 +872,7 @@ class RMILibrary:
                 "TermValue": term_value,
             }
             linear_motion_packet = linear_motion_packet  # merge two dicts
-            response = self.send_message(linear_motion_packet)
+            response = self.send_message(packet=linear_motion_packet)
             if response is None:
                 raise Exception("Error while sending linear_motion_packet")
             error_id = response.get("ErrorID", None)
@@ -905,7 +921,7 @@ class RMILibrary:
                 "TermValue": term_value,
             }
             linear_relative_packet = linear_relative_packet | optionals  # merge two dicts
-            response = self.send_message(linear_relative_packet)
+            response = self.send_message(packet=linear_relative_packet)
             if response is None:
                 raise Exception("Error while sending linear_relative_packet")
             error_id = response.get("ErrorID", None)
@@ -954,7 +970,7 @@ class RMILibrary:
             }
 
             joint_motion_packet = joint_motion_packet  # | optionals # merge two dicts
-            response = self.send_message(joint_motion_packet)
+            response = self.send_message(packet=joint_motion_packet)
             if response is None:
                 raise Exception("Error while sending joint_motion_packet")
             error_id = response.get("ErrorID", None)
@@ -980,7 +996,7 @@ class RMILibrary:
             assert port_number >= 0 or port_number <= 2048, "DOUT port number is out of range"
             assert port_value in ["ON", "OFF"], "DOUT value must be ON or OFF"
             write_d_out_data_packet = {"Command": "FRC_WriteDOUT", "PortNumber": port_number, "PortValue": port_value}
-            response = self.send_message(write_d_out_data_packet)
+            response = self.send_message(packet=write_d_out_data_packet)
 
             if response is None:
                 raise Exception("Error while sending write_d_out_data_packet")
@@ -1006,7 +1022,7 @@ class RMILibrary:
             time.sleep(self.TIME_BUFFER)
             assert port_number >= 0 or port_number <= 2048, "DIN port number is out of range"
             write_d_in_data_packet = {"Command": "FRC_ReadDIN", "PortNumber": port_number}
-            response = self.send_message(write_d_in_data_packet)
+            response = self.send_message(packet=write_d_in_data_packet)
 
             if response is None:
                 raise Exception("Error while sending write_d_in_data_packet")
@@ -1048,7 +1064,7 @@ if __name__ == "__main__":
         LOGGER.info("manual interruption of the program")
         sys.exit(1)
     except Exception as error:
-        LOGGER.error(error)
+        LOGGER.error(f"Error in rmi_library - main: {error}")
         traceback.LOGGER.error_exc()
     finally:
         exit(1)

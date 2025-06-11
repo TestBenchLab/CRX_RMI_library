@@ -13,7 +13,7 @@ LOGGER = logging.getLogger("rmi_library")
 
 class RMILibrary:
     def __init__(
-        self, robot_ip="192.168.0.2", robot_port=16001
+        self, robot_ip="192.168.0.10", robot_port=16001
     ):  # ROBOT REEL = "192.168.0.104" / ROBOGUIDE = "192.168.0.10"
         self.ROBOT_IP = robot_ip
         self.ROBOT_PORT = robot_port
@@ -35,7 +35,7 @@ class RMILibrary:
             2556971: "Robot in Single Step Mode (2556971)",
         }
 
-        self.init_rmi_connection(verbose=True)
+        self.startup_sequence(verbose=True)
 
     def is_socket_active(self, verbose=True):
         """Check if the socket is currently active"""
@@ -73,13 +73,14 @@ class RMILibrary:
 
             while True:
                 _, current_position = self.rmi_read_cartesian_position()
+                print(current_position)
                 config = current_position["Configuration"]
                 self.rmi_set_u_tool(config["UToolNumber"])
                 self.rmi_set_u_frame(config["UFrameNumber"])
                 current_position = current_position["Position"]
                 updated_position = current_position.copy()
                 updated_position.update({"Z": current_position["Z"] + 5})
-                _, response = self.rmi_linear_motion(config, updated_position, "mmSec", 5, "FINE", 1)
+                _, response = self.rmi_linear_motion(config, updated_position, "mmSec", 5, "FINE", 15)
                 logging.error(response)
                 input("Press Enter to continue...")
 
@@ -323,9 +324,9 @@ class RMILibrary:
         except Exception as e:
             LOGGER.error(f"error read_error(): {e}")
 
-    def init_rmi_connection(self, verbose=True):
+    def startup_sequence(self, verbose=True) -> bool:
         try:
-            
+
             success, _ = self.rmi_connect(verbose=verbose)
             self.is_rmi_running = success
             if not success:
@@ -333,27 +334,32 @@ class RMILibrary:
 
             if not self.rmi_reset():
                 return False
-            
-            success = self.rmi_abort()
-            if not success:
-                return False
+
+            # success = self.rmi_abort()
+            # if not success:
+            #     return False
 
             _, status = self.rmi_get_status()
             self.SEQUENCE_ID = 1
             is_status_ok = self.is_robot_available_to_initialize(status)
-            (
+            if is_status_ok:
                 LOGGER.warning("Robot ready for initialization")
-                if is_status_ok
-                else LOGGER.warning("waiting for ServoReady = 1 and TPMODE = 0...")
-            )
+            else:
+                LOGGER.warning("waiting for ServoReady = 1 and TPMODE = 0...")
+
             while not is_status_ok:
                 time.sleep(1)
                 LOGGER.error("Robot status is not OK, retrying initialization...")
                 _, status = self.rmi_get_status(False)
                 is_status_ok = self.is_robot_available_to_initialize(status)
-            _, _ = self.rmi_initialize()
+
+            success, _ = self.rmi_initialize()
+            if not success:
+                return False
+
         except Exception as e:
-            LOGGER.error(f"error init_rmi_connection(): {e}")
+            LOGGER.error(f"error in startup_sequence(): {e}")
+            return False
 
     def rmi_set_uf_ut(self, uf: int, ut: int, group=1):
         try:

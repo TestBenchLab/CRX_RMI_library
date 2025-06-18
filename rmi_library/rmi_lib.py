@@ -324,42 +324,47 @@ class RMILibrary:
         except Exception as e:
             LOGGER.error(f"error read_error(): {e}")
 
-    def startup_sequence(self, verbose=True) -> bool:
-        try:
+    def startup_sequence(self, verbose=True, max_attempts=10) -> bool:
+        attempt = 0
+        while attempt < max_attempts:
+            try:
+                success, _ = self.rmi_connect(verbose=verbose)
+                self.is_rmi_running = success
+                if not success:
+                    attempt += 1
+                    continue
 
-            success, _ = self.rmi_connect(verbose=verbose)
-            self.is_rmi_running = success
-            if not success:
-                return False
+                if not self.rmi_reset():
+                    attempt += 1
+                    continue
 
-            if not self.rmi_reset():
-                return False
-
-            # success = self.rmi_abort()
-            # if not success:
-            #     return False
-
-            _, status = self.rmi_get_status()
-            self.SEQUENCE_ID = 1
-            is_status_ok = self.is_robot_available_to_initialize(status)
-            if is_status_ok:
-                LOGGER.warning("Robot ready for initialization")
-            else:
-                LOGGER.warning("waiting for ServoReady = 1 and TPMODE = 0...")
-
-            while not is_status_ok:
-                time.sleep(1)
-                LOGGER.error("Robot status is not OK, retrying initialization...")
-                _, status = self.rmi_get_status(False)
+                _, status = self.rmi_get_status()
+                self.SEQUENCE_ID = 1
                 is_status_ok = self.is_robot_available_to_initialize(status)
+                if not is_status_ok:
+                    LOGGER.warning("waiting for ServoReady = 1 and TPMODE = 0...")
 
-            success, _ = self.rmi_initialize()
-            if not success:
-                return False
+                while not is_status_ok:
+                    time.sleep(1)
+                    LOGGER.error("Robot status is not OK, retrying initialization...")
+                    _, status = self.rmi_get_status(False)
+                    is_status_ok = self.is_robot_available_to_initialize(status)
 
-        except Exception as e:
-            LOGGER.error(f"error in startup_sequence(): {e}")
-            return False
+                success, _ = self.rmi_initialize()
+                if not success:
+                    attempt += 1
+                    continue
+
+                LOGGER.warning("Robot ready for initialization")
+                return True
+
+            except Exception as e:
+                LOGGER.error(f"error in startup_sequence() attempt {attempt+1}: {e}")
+                attempt += 1
+                continue
+
+        LOGGER.error(f"Connection failed after {max_attempts} attempts.")
+        return False
 
     def rmi_set_uf_ut(self, uf: int, ut: int, group=1):
         try:

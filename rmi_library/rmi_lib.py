@@ -33,6 +33,8 @@ class RMILibrary:
             2556977: "Invalid Instruction packet (2556977)",
             2556954: "Robot is Already Connected (2556954)",
             2556971: "Robot in Single Step Mode (2556971)",
+            2556940: "Cannot Reset Controller (2556940)",
+            2556942: "RMI Command Fail (2556942)",
         }
 
         self.startup_sequence(verbose=True)
@@ -335,6 +337,10 @@ class RMILibrary:
                     continue
 
                 if not self.rmi_reset():
+                    attempt += 1
+                    continue
+
+                if not self.rmi_abort():
                     attempt += 1
                     continue
 

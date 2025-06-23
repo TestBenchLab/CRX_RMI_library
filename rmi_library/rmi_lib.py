@@ -340,9 +340,10 @@ class RMILibrary:
                     attempt += 1
                     continue
 
-                if not self.rmi_abort():
-                    attempt += 1
-                    continue
+                if attempt % 2 == 0:
+                    if not self.rmi_abort():
+                        attempt += 1
+                        continue
 
                 _, status = self.rmi_get_status()
                 self.SEQUENCE_ID = 1

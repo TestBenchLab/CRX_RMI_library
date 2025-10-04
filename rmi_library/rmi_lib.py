@@ -96,7 +96,7 @@ class RMILibrary:
             response = self.sock.recv(1024).decode("utf-8")  # decode response
             response_data = json.loads(response)
             if verbose_:
-                LOGGER.info(f"REPONSE RECUE: {response_data}")
+                LOGGER.debug(f"REPONSE RECUE: {response_data}")
             return response_data
         except Exception:
             pass
@@ -131,7 +131,7 @@ class RMILibrary:
             self.sock.connect((self.ROBOT_IP, new_port))
 
             if is_connected:
-                LOGGER.warning("RMI connection successful.")
+                LOGGER.debug("RMI connection successful.")
             else:
                 if verbose:
                     error_str = self.get_error_string(error_id)
@@ -161,7 +161,7 @@ class RMILibrary:
                 error_str = self.get_error_string(error_id)
                 if is_disconnected:
                     self.sock.close()
-                    LOGGER.warning("RMI_DISCONNECT successful")
+                    LOGGER.debug("RMI_DISCONNECT successful")
                 else:
                     LOGGER.error(f"RMI_DISCONNECT failed: {error_str}")
                 return is_disconnected, response
@@ -183,7 +183,7 @@ class RMILibrary:
                 if verbose:
                     error_str = self.get_error_string(error_id)
                     (
-                        LOGGER.warning("RMI_GETSTATUS successful")
+                        LOGGER.debug("RMI_GETSTATUS successful")
                         if request_successful
                         else LOGGER.error(f"RMI_GETSTATUS failed: {error_str}")
                     )
@@ -220,7 +220,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_INITIALIZE successful")
+                    LOGGER.debug("RMI_INITIALIZE successful")
                     if request_successful
                     else LOGGER.error(f"RMI_INITIALIZE failed: {error_str}")
                 )
@@ -242,7 +242,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 if request_successful:
-                    LOGGER.warning("RMI_ABORT successful")
+                    LOGGER.debug("RMI_ABORT successful")
                 else:
                     LOGGER.error(f"RMI_ABORT failed: {error_str}")
                 return request_successful
@@ -264,7 +264,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_RESET successful")
+                    LOGGER.debug("RMI_RESET successful")
                     if request_successful
                     else LOGGER.error(f"RMI_RESET failed: {error_str}")
                 )
@@ -287,7 +287,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_PAUSE successful")
+                    LOGGER.debug("RMI_PAUSE successful")
                     if request_successful
                     else LOGGER.error(f"RMI_PAUSE failed: {error_str}")
                 )
@@ -309,7 +309,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.et_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_CONTINUE successful")
+                    LOGGER.debug("RMI_CONTINUE successful")
                     if request_successful
                     else LOGGER.error(f"RMI_CONTINUE failed: {error_str}")
                 )
@@ -362,7 +362,7 @@ class RMILibrary:
                     attempt += 1
                     continue
 
-                LOGGER.warning("Robot ready for initialization")
+                LOGGER.debug("Robot ready for initialization")
                 return True
 
             except Exception as e:
@@ -388,7 +388,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_SET_UF_UT successful")
+                    LOGGER.debug("RMI_SET_UF_UT successful")
                     if request_successful
                     else LOGGER.error(f"RMI_SET_UF_UT failed: {error_str}")
                 )
@@ -413,7 +413,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_READ_UF_DATA successful")
+                    LOGGER.debug("RMI_READ_UF_DATA successful")
                     if request_successful
                     else LOGGER.error(f"RMI_READ_UF_DATA failed: {error_str}")
                 )
@@ -445,7 +445,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WRITE_UF_DATA successful")
+                    LOGGER.debug("RMI_WRITE_UF_DATA successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WRITE_UF_DATA failed: {error_str}")
                 )
@@ -470,7 +470,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_READ_UT_DATA successful")
+                    LOGGER.debug("RMI_READ_UT_DATA successful")
                     if request_successful
                     else LOGGER.error(f"RMI_READ_UT_DATA failed: {error_str}")
                 )
@@ -502,7 +502,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WRITE_UT_DATA successful")
+                    LOGGER.debug("RMI_WRITE_UT_DATA successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WRITE_UT_DATA failed: {error_str}")
                 )
@@ -526,7 +526,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_READ_CARTESIAN_POSITION successful")
+                    LOGGER.debug("RMI_READ_CARTESIAN_POSITION successful")
                     if request_successful
                     else LOGGER.error(f"RMI_READ_CARTESIAN_POSITION failed: {error_str}")
                 )
@@ -548,7 +548,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_READ_CARTESIAN_POSITION successful")
+                    LOGGER.debug("RMI_READ_CARTESIAN_POSITION successful")
                     if request_successful
                     else LOGGER.error(f"RMI_READ_CARTESIAN_POSITION failed: {error_str}")
                 )
@@ -571,7 +571,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_SET_OVERRIDE successful")
+                    LOGGER.debug("RMI_SET_OVERRIDE successful")
                     if request_successful
                     else LOGGER.error(f"RMI_SET_OVERRIDE failed: {error_str}")
                 )
@@ -595,7 +595,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_GET_UF_UT successful")
+                    LOGGER.debug("RMI_GET_UF_UT successful")
                     if request_successful
                     else LOGGER.error(f"RMI_GET_UF_UT failed: {error_str}")
                 )
@@ -618,7 +618,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_READ_PR successful")
+                    LOGGER.debug("RMI_READ_PR successful")
                     if request_successful
                     else LOGGER.error(f"RMI_READ_PR failed: {error_str}")
                 )
@@ -655,7 +655,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WRITE_PR successful")
+                    LOGGER.debug("RMI_WRITE_PR successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WRITE_PR failed: {error_str}")
                 )
@@ -679,7 +679,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_READ_TCP_SPEED successful")
+                    LOGGER.debug("RMI_READ_TCP_SPEED successful")
                     if request_successful
                     else LOGGER.error(f"RMI_READ_TCP_SPEED failed: {error_str}")
                 )
@@ -710,7 +710,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WAIT_DIN successful")
+                    LOGGER.debug("RMI_WAIT_DIN successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WAIT_DIN failed: {error_str}")
                 )
@@ -741,7 +741,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_SET_U_FRAME successful")
+                    LOGGER.debug("RMI_SET_U_FRAME successful")
                     if request_successful
                     else LOGGER.error(f"RMI_SET_U_FRAME failed: {error_str}")
                 )
@@ -768,7 +768,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_SET_U_TOOL successful")
+                    LOGGER.debug("RMI_SET_U_TOOL successful")
                     if request_successful
                     else LOGGER.error(f"RMI_SET_U_TOOL failed: {error_str}")
                 )
@@ -795,7 +795,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WAIT_TIME successful")
+                    LOGGER.debug("RMI_WAIT_TIME successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WAIT_TIME failed: {error_str}")
                 )
@@ -826,7 +826,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_SET_PAYLOAD successful")
+                    LOGGER.debug("RMI_SET_PAYLOAD successful")
                     if request_successful
                     else LOGGER.error(f"RMI_SET_PAYLOAD failed: {error_str}")
                 )
@@ -854,7 +854,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_CALL successful")
+                    LOGGER.debug("RMI_CALL successful")
                     if request_successful
                     else LOGGER.error(f"RMI_CALL failed: {error_str}")
                 )
@@ -900,7 +900,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_LINEAR_MOTION successful")
+                    LOGGER.debug("RMI_LINEAR_MOTION successful")
                     if request_successful
                     else LOGGER.error(f"RMI_LINEAR_MOTION failed: {error_str}")
                 )
@@ -949,7 +949,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_LINEAR_RELATIVE successful")
+                    LOGGER.debug("RMI_LINEAR_RELATIVE successful")
                     if request_successful
                     else LOGGER.error(f"RMI_LINEAR_RELATIVE failed: {error_str}")
                 )
@@ -998,7 +998,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_JOINT_MOTION successful")
+                    LOGGER.debug("RMI_JOINT_MOTION successful")
                     if request_successful
                     else LOGGER.error(f"RMI_JOINT_MOTION failed: {error_str}")
                 )
@@ -1025,7 +1025,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WRITE_D_OUT successful")
+                    LOGGER.debug("RMI_WRITE_D_OUT successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WRITE_D_OUT failed: {error_str}")
                 )
@@ -1051,7 +1051,7 @@ class RMILibrary:
                 request_successful = error_id == 0
                 error_str = self.get_error_string(error_id)
                 (
-                    LOGGER.warning("RMI_WRITE_D_IN successful")
+                    LOGGER.debug("RMI_WRITE_D_IN successful")
                     if request_successful
                     else LOGGER.error(f"RMI_WRITE_D_IN failed: {error_str}")
                 )

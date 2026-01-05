@@ -1008,6 +1008,52 @@ class RMILibrary:
         except Exception as e:
             LOGGER.error(f"error rmi_joint_motion(): {e}")
 
+
+    def rmi_joint_motion_JRep(self, jointAngles: dict, speed_type: str, speed, term_type: str):
+        time.sleep(self.TIME_BUFFER)
+        try:
+            expected_keys_jointAngles = {"J1", "J2", "J3", "J4", "J5", "J6"}
+            assert (
+                set(jointAngles.keys()) == expected_keys_jointAngles
+            ), "the input position isn't correctly written ; position : " + str(jointAngles)
+            expected_speed_type = ["Percent", "Time", "mSec"]
+            assert speed_type in expected_speed_type, "speed_type isn't correctly written ; speed_type : " + speed_type
+            expected_term_type = ["FINE", "CNT", "CR"]
+            assert term_type in expected_term_type, "term_type isn't correctly written ; term_type : " + term_type
+
+            sequence_id = self.SEQUENCE_ID
+            self.SEQUENCE_ID += 1
+            joint_motion_packet = {
+                "Instruction": "FRC_JointMotionJRep",
+                "SequenceID": sequence_id,
+                "JointAngles": jointAngles,
+                "SpeedType": speed_type,
+                "Speed": speed,
+                "TermType": term_type,
+            }
+
+            joint_motion_packet = joint_motion_packet  # | optionals # merge two dicts
+            response = self.send_message(packet=joint_motion_packet)
+            if response is None:
+                raise Exception("Error while sending joint_motion_packet")
+            error_id = response.get("ErrorID", None)
+            if error_id is None:
+                raise Exception("Error while fetching ErrorID")
+            else:
+                request_successful = error_id == 0
+                error_str = self.get_error_string(error_id)
+                (
+                    LOGGER.debug("rmi_joint_motion_JRep successful")
+                    if request_successful
+                    else LOGGER.error(f"rmi_joint_motion_JRep failed: {error_str}")
+                )
+                return request_successful, response
+        except AssertionError as ae:
+            LOGGER.error(ae)
+        except Exception as e:
+            LOGGER.error(f"error rmi_joint_motion_JRep(): {e}")
+
+
     def rmi_write_d_out(self, port_number: int, port_value: str, group=1):
         try:
             time.sleep(self.TIME_BUFFER)

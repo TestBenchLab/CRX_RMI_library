@@ -326,7 +326,7 @@ class RMILibrary:
         except Exception as e:
             LOGGER.error(f"error read_error(): {e}")
 
-    def startup_sequence(self, verbose=True, max_attempts=10) -> bool:
+    def startup_sequence(self, verbose=True, max_attempts=5) -> bool:
         attempt = 0
         while attempt < max_attempts:
             try:
@@ -1012,7 +1012,7 @@ class RMILibrary:
     def rmi_joint_motion_JRep(self, jointAngles: dict, speed_type: str, speed, term_type: str):
         time.sleep(self.TIME_BUFFER)
         try:
-            expected_keys_jointAngles = {"J1", "J2", "J3", "J4", "J5", "J6"}
+            expected_keys_jointAngles = {"J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8", "J9"}
             assert (
                 set(jointAngles.keys()) == expected_keys_jointAngles
             ), "the input position isn't correctly written ; position : " + str(jointAngles)

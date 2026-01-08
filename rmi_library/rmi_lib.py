@@ -1026,7 +1026,7 @@ class RMILibrary:
             joint_motion_packet = {
                 "Instruction": "FRC_JointMotionJRep",
                 "SequenceID": sequence_id,
-                "JointAngles": jointAngles,
+                "JointAngle": jointAngles,
                 "SpeedType": speed_type,
                 "Speed": speed,
                 "TermType": term_type,

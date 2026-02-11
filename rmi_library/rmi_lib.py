@@ -808,7 +808,7 @@ class RMILibrary:
     def rmi_set_payload(self, schedule_number: int):
         time.sleep(self.TIME_BUFFER)
         try:
-            assert schedule_number > 0 and schedule_number < 9, "schedule_number is out of range"
+            # assert schedule_number > 0 and schedule_number < 9, "schedule_number is out of range"
             sequence_id = self.SEQUENCE_ID
             self.SEQUENCE_ID += 1
             set_pay_load_packet = {

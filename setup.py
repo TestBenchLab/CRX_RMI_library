@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="rmi_library",
-    version="1.1",
+    version="1.2",
     packages=find_packages(),  # Find-submodules
     install_requires=[  # External Dependencies
         "numpy>=1.22.4",
